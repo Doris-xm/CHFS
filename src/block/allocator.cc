@@ -67,8 +67,8 @@ BlockAllocator::BlockAllocator(std::shared_ptr<BlockManager> block_manager,
 }
 
 // Fixme: currently we don't consider errors in this implementation
-auto BlockAllocator::free_block_cnt() const -> usize {
-  usize total_free_blocks = 0;
+    auto BlockAllocator::free_block_cnt() const -> usize {
+        usize total_free_blocks = 0;
   std::vector<u8> buffer(bm->block_size());
 
   for (block_id_t i = 0; i < this->bitmap_block_cnt; i++) {
@@ -100,17 +100,18 @@ auto BlockAllocator::allocate() -> ChfsResult<block_id_t> {
     // The index of the allocated bit inside current bitmap block.
     std::optional<block_id_t> res = std::nullopt;
 
+    Bitmap bitmap(buffer.data(), bm->block_size());
+
     if (i == this->bitmap_block_cnt - 1) {
       // If current block is the last block of the bitmap.
-
       // TODO: Find the first free bit of current bitmap block
       // and store it in `res`.
-      UNIMPLEMENTED();
+      res = bitmap.find_first_free_w_bound(this->last_block_num);
     } else {
 
       // TODO: Find the first free bit of current bitmap block
       // and store it in `res`.
-      UNIMPLEMENTED();
+      res = bitmap.find_first_free();
     }
 
     // If we find one free bit inside current bitmap block.
@@ -122,7 +123,9 @@ auto BlockAllocator::allocate() -> ChfsResult<block_id_t> {
       // 1. Set the free bit we found to 1 in the bitmap.
       // 2. Flush the changed bitmap block back to the block manager.
       // 3. Calculate the value of `retval`.
-      UNIMPLEMENTED();
+      bitmap.set(res.value());
+      bm->write_block(i + this->bitmap_block_id, buffer.data());
+      retval = (i + this->bitmap_block_id) * bm->block_size() + res.value();
 
       return ChfsResult<block_id_t>(retval);
     }
@@ -141,7 +144,13 @@ auto BlockAllocator::deallocate(block_id_t block_id) -> ChfsNullResult {
   // 2. Flush the changed bitmap block back to the block manager.
   // 3. Return ChfsNullResult(ErrorType::INVALID_ARG) 
   //    if you find `block_id` is invalid (e.g. already freed).
-  UNIMPLEMENTED();
+  block_id_t bitmap_id = block_id / bm->block_size();
+  std::vector<u8> buffer(bm->block_size());
+  bm->read_block(bitmap_id, buffer.data());
+
+  Bitmap bitmap(buffer.data(), bm->block_size());
+  bitmap.clear(block_id % bm->block_size());
+  bm->write_block(bitmap_id, buffer.data());
 
   return KNullOk;
 }
