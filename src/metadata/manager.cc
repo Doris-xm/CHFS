@@ -100,7 +100,16 @@ auto InodeManager::allocate_inode(InodeType type, block_id_t bid)
       // 3. Return the id of the allocated inode.
       //    You may have to use the `RAW_2_LOGIC` macro
       //    to get the result inode id.
-      UNIMPLEMENTED();
+      Inode inode(type, bm->block_size());
+      u8 buffer[bm->block_size()];
+      inode.flush_to_buffer(buffer);
+      bm->write_block(bid, buffer);
+
+      block_id_t idx = count * bm->block_size() + free_idx.value();
+      set_table(RAW_2_LOGIC(idx), bid);
+
+      return RAW_2_LOGIC(idx);
+
     }
   }
 
@@ -113,7 +122,14 @@ auto InodeManager::set_table(inode_id_t idx, block_id_t bid) -> ChfsNullResult {
   // TODO: Implement this function.
   // Fill `bid` into the inode table entry
   // whose index is `idx`.
-  UNIMPLEMENTED();
+  auto inode_per_block = bm->block_size() / sizeof(block_id_t);
+  auto block_entry_id = idx / inode_per_block + 1;
+  u8 data[bm->block_size()];
+  this->bm->read_block(block_entry_id, data);
+  block_id_t *block_data = (block_id_t *)data;
+  block_data[idx % inode_per_block] = bid;
+
+  this->bm->write_block(block_entry_id, data);
 
   return KNullOk;
 }
@@ -127,7 +143,12 @@ auto InodeManager::get(inode_id_t id) -> ChfsResult<block_id_t> {
   // from the inode table. You may have to use
   // the macro `LOGIC_2_RAW` to get the inode
   // table index.
-  UNIMPLEMENTED();
+  auto inode_per_block = bm->block_size() / sizeof(block_id_t);
+
+  u8 buf[bm->block_size()];
+  this->bm->read_block(id / inode_per_block + 1, buf);
+  block_id_t *block_data = (block_id_t *)buf;
+  res_block_id = block_data[LOGIC_2_RAW(id) % inode_per_block];
 
   return ChfsResult<block_id_t>(res_block_id);
 }
@@ -223,7 +244,17 @@ auto InodeManager::free_inode(inode_id_t id) -> ChfsNullResult {
   //    You may have to use macro `LOGIC_2_RAW`
   //    to get the index of inode table from `id`.
   // 2. Clear the inode bitmap.
-  UNIMPLEMENTED();
+  auto inode_per_block = bm->block_size() / sizeof(block_id_t);
+
+  u8 buf[bm->block_size()];
+  this->bm->read_block(LOGIC_2_RAW(id) / inode_per_block + 1, buf);
+  for(int i = 0; i < 8; i++)
+    buf[LOGIC_2_RAW(id) % inode_per_block * 8 + i] = 0;
+  this->bm->write_block(LOGIC_2_RAW(id) / inode_per_block + 1, buf);
+
+  this->bm->read_block(this->n_bitmap_blocks + LOGIC_2_RAW(id) / bm->block_size() + 1, buf);
+  Bitmap bitmap(buf, this->bm->block_size());
+  bitmap.clear(LOGIC_2_RAW(id) % bm->block_size());
 
   return KNullOk;
 }
