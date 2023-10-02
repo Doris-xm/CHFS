@@ -11,10 +11,26 @@ auto FileOperation::alloc_inode(InodeType type) -> ChfsResult<inode_id_t> {
 
   // TODO:
   // 1. Allocate a block for the inode.
+  auto bid = this->block_allocator_->allocate();
+  if(bid.is_err()) {
+    return ChfsResult<inode_id_t>(bid.unwrap_error());
+  }
   // 2. Allocate an inode.
+  inode_res = this->inode_manager_->allocate_inode(type, bid.unwrap());
+  if(inode_res.is_err()) {
+    return ChfsResult<inode_id_t>(inode_res.unwrap_error());
+  }
+  inode_id = inode_res.unwrap();
   // 3. Initialize the inode block
   //    and write the block back to block manager.
-  UNIMPLEMENTED();
+  std::vector<u8> buffer(this->block_manager_->block_size());
+  auto inode_p = reinterpret_cast<Inode *>(buffer.data());
+  inode_p->type = type;
+  inode_p->inner_attr.set_all_time(time(0));
+  auto write_res = this->block_manager_->write_block(bid.unwrap(), buffer.data());
+  if(write_res.is_err()) {
+    return ChfsResult<inode_id_t>(write_res.unwrap_error());
+  }
 
   return inode_res;
 }
