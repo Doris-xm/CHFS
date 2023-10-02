@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <sstream>
+#include <regex>
 
 #include "filesystem/directory_op.h"
 
@@ -42,7 +43,14 @@ auto append_to_directory(std::string src, std::string filename, inode_id_t id)
 
   // TODO: Implement this function.
   //       Append the new directory entry to `src`.
-  UNIMPLEMENTED();
+  DirectoryEntry entry;
+  auto list = std::list<DirectoryEntry>();
+  entry.name = filename;
+  entry.id = id;
+  list.push_back(entry);
+  if(src.length())
+    src += "/";
+  src += dir_list_to_string(list);
   
   return src;
 }
@@ -51,7 +59,21 @@ auto append_to_directory(std::string src, std::string filename, inode_id_t id)
 void parse_directory(std::string &src, std::list<DirectoryEntry> &list) {
 
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+    if(src.length() == 0)
+      return;
+    std::regex split("/"), split_name(":");
+    std::sregex_token_iterator pos(src.begin(), src.end(), split, -1);
+    decltype(pos) end;
+    for (; pos != end; ++pos) {
+        std::string temp = pos->str();
+        std::sregex_token_iterator pos_name(temp.begin(), temp.end(), split_name, -1);
+        DirectoryEntry entry;
+        entry.name = pos_name->str();
+        ++pos_name;
+        std::string temp_id = pos_name->str();
+        entry.id = string_to_inode_id(temp_id);
+        list.push_back(entry);
+    }
 
 }
 
@@ -62,7 +84,17 @@ auto rm_from_directory(std::string src, std::string filename) -> std::string {
 
   // TODO: Implement this function.
   //       Remove the directory entry from `src`.
-  UNIMPLEMENTED();
+  std::list<DirectoryEntry> list;
+  parse_directory(src, list);
+  for (auto iter = list.begin(); iter != list.end(); ++iter)
+  {
+      if (strcmp(iter->name.c_str(), filename.c_str()) == 0)
+      {
+          list.erase(iter);
+          break;
+      }
+  }
+  res =  dir_list_to_string(list);
 
   return res;
 }
@@ -74,7 +106,11 @@ auto read_directory(FileOperation *fs, inode_id_t id,
                     std::list<DirectoryEntry> &list) -> ChfsNullResult {
   
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+  auto res = fs->read_file(id);
+  if(res.is_err())
+      return res.unwrap_error();
+  std::string src = std::string(res.unwrap().begin(), res.unwrap().end());
+  parse_directory(src, list);
 
   return KNullOk;
 }
