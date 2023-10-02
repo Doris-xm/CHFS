@@ -106,7 +106,7 @@ auto InodeManager::allocate_inode(InodeType type, block_id_t bid)
       bm->write_block(bid, buffer);
 
       block_id_t idx = count * bm->block_size() + free_idx.value();
-      set_table(RAW_2_LOGIC(idx), bid);
+      set_table(idx, bid);
 
       return RAW_2_LOGIC(idx);
 
