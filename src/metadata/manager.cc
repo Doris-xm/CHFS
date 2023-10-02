@@ -146,7 +146,7 @@ auto InodeManager::get(inode_id_t id) -> ChfsResult<block_id_t> {
   auto inode_per_block = bm->block_size() / sizeof(block_id_t);
 
   u8 buf[bm->block_size()];
-  this->bm->read_block(id / inode_per_block + 1, buf);
+  this->bm->read_block(LOGIC_2_RAW(id) / inode_per_block + 1, buf);
   block_id_t *block_data = (block_id_t *)buf;
   res_block_id = block_data[LOGIC_2_RAW(id) % inode_per_block];
 
