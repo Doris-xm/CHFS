@@ -161,8 +161,8 @@ auto FileOperation::mk_helper(inode_id_t id, const char *name, InodeType type)
   auto write_res = write_file(id, std::vector<u8>(append_src.begin(), append_src.end()));
   if(write_res.is_err())
       return write_res.unwrap_error();
-
-  return ChfsResult<inode_id_t>(static_cast<inode_id_t>(0));
+  return ChfsResult<inode_id_t>(alloc_res.unwrap());
+//  return ChfsResult<inode_id_t>(static_cast<inode_id_t>(0));
 }
 
 // {Your code here}
