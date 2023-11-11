@@ -252,9 +252,10 @@ auto InodeManager::free_inode(inode_id_t id) -> ChfsNullResult {
     buf[LOGIC_2_RAW(id) % inode_per_block * 8 + i] = 0;
   this->bm->write_block(LOGIC_2_RAW(id) / inode_per_block + 1, buf);
 
-  this->bm->read_block(this->n_bitmap_blocks + LOGIC_2_RAW(id) / bm->block_size() + 1, buf);
+  this->bm->read_block(this->n_table_blocks + LOGIC_2_RAW(id) / (KBitsPerByte * bm->block_size()) + 1, buf);
   Bitmap bitmap(buf, this->bm->block_size());
-  bitmap.clear(LOGIC_2_RAW(id) % bm->block_size());
+  bitmap.clear(LOGIC_2_RAW(id) %  (KBitsPerByte * bm->block_size()));
+  this->bm->write_block(this->n_table_blocks + LOGIC_2_RAW(id) / (KBitsPerByte * bm->block_size()) + 1, buf);
 
   return KNullOk;
 }
