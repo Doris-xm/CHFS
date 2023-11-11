@@ -123,7 +123,7 @@ MetadataServer::MetadataServer(std::string const &address, u16 port,
 auto MetadataServer::mknode(u8 type, inode_id_t parent, const std::string &name)
     -> inode_id_t {
   // TODO: Implement this function.
-  auto res = operation_->mk_helper(parent, static_cast<const char *>(name.c_str()), static_cast<InodeType>(type));
+  auto res = operation_->mk_helper(parent, name.c_str(), static_cast<InodeType>(type));
     if (res.is_err()) {
         return 0;
     }
@@ -134,7 +134,7 @@ auto MetadataServer::mknode(u8 type, inode_id_t parent, const std::string &name)
 auto MetadataServer::unlink(inode_id_t parent, const std::string &name)
     -> bool {
   // TODO: Implement this function.
-  auto res = operation_->unlink(parent, static_cast<const char *>(name.c_str()));
+  auto res = operation_->unlink(parent, name.c_str());
   if (res.is_err()) {
     return false;
   }
@@ -177,11 +177,11 @@ auto MetadataServer::allocate_block(inode_id_t id) -> BlockInfo {
 
         auto buffer = operation_->read_file(id).unwrap();
         buffer.insert(buffer.end(), reinterpret_cast<unsigned char*>(&block_info.first),
-                      reinterpret_cast<unsigned char*>(&block_info.first) + sizeof(uint64_t));
+                      reinterpret_cast<unsigned char*>(&block_info.first) + sizeof(block_id_t));
         buffer.insert(buffer.end(), reinterpret_cast<unsigned char*>(&dataserver_id),
-                      reinterpret_cast<unsigned char*>(&dataserver_id) + sizeof(uint64_t));
+                      reinterpret_cast<unsigned char*>(&dataserver_id) + sizeof(mac_id_t));
         buffer.insert(buffer.end(), reinterpret_cast<unsigned char*>(&block_info.second),
-                        reinterpret_cast<unsigned char*>(&block_info.second) + sizeof(uint64_t));
+                        reinterpret_cast<unsigned char*>(&block_info.second) + sizeof(version_t));
 
         operation_->write_file(id, buffer);
         return BlockInfo (block_info.first, dataserver_id, block_info.second);
@@ -191,7 +191,18 @@ auto MetadataServer::allocate_block(inode_id_t id) -> BlockInfo {
 auto MetadataServer::free_block(inode_id_t id, block_id_t block_id,
                                 mac_id_t machine_id) -> bool {
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+  auto res = clients_[machine_id]->call("free_block", block_id);
+  if (res.is_err()) {
+      return false;
+  }
+  auto buffer = operation_->read_file(id).unwrap();
+  for (int i = 0; i < buffer.size()/ sizeof (BlockInfo); i += sizeof (BlockInfo)) {
+      if (*reinterpret_cast<block_id_t*>(&buffer[i]) == block_id) {
+          buffer.erase(buffer.begin() + i, buffer.begin() + i + sizeof(BlockInfo));
+          operation_->write_file(id, buffer);
+          return true;
+      }
+  }
 
   return false;
 }
@@ -200,18 +211,29 @@ auto MetadataServer::free_block(inode_id_t id, block_id_t block_id,
 auto MetadataServer::readdir(inode_id_t node)
     -> std::vector<std::pair<std::string, inode_id_t>> {
   // TODO: Implement this function.
-  UNIMPLEMENTED();
-
-  return {};
+    std::list<DirectoryEntry> list;
+    auto res = read_directory(operation_.get(), node, list);
+    if (res.is_err()) {
+        return {};
+    }
+    std::vector<std::pair<std::string, inode_id_t>> result;
+    for (auto iter = list.begin(); iter != list.end(); ++iter) {
+        result.push_back(std::make_pair(iter->name, iter->id));
+    }
+    return result;
 }
 
 // {Your code here}
 auto MetadataServer::get_type_attr(inode_id_t id)
     -> std::tuple<u64, u64, u64, u64, u8> {
   // TODO: Implement this function.
-  UNIMPLEMENTED();
-
-  return {};
+    auto res = operation_->get_type_attr(id);
+    if (res.is_err()) {
+        return {};
+    }
+    auto pair = res.unwrap();
+    return std::make_tuple(pair.second.size, pair.second.atime, pair.second.mtime, pair.second.ctime,
+                           static_cast<chfs::u8>(pair.first));
 }
 
 auto MetadataServer::reg_server(const std::string &address, u16 port,

@@ -61,6 +61,13 @@ auto DataServer::read_data(block_id_t block_id, usize offset, usize len,
                            version_t version) -> std::vector<u8> {
   // TODO: Implement this function.
     std::vector<u8> buffer(block_allocator_->bm->block_size());
+    std::vector<u8> version_buffer(block_allocator_->bm->block_size());
+    // check version
+    auto versions_per_block = block_allocator_->bm->block_size() / sizeof(version_t);
+    block_allocator_->bm->read_block(block_id / versions_per_block, version_buffer.data());
+    if (version_buffer.data()[block_id % versions_per_block * sizeof(version_t)] > version) {
+        return {};
+    }
 
     auto res = block_allocator_->bm->read_block(block_id, buffer.data());
     if (!res.is_ok()) {
