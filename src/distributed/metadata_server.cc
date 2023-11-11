@@ -123,43 +123,68 @@ MetadataServer::MetadataServer(std::string const &address, u16 port,
 auto MetadataServer::mknode(u8 type, inode_id_t parent, const std::string &name)
     -> inode_id_t {
   // TODO: Implement this function.
-  UNIMPLEMENTED();
-
-  return 0;
+  auto res = operation_->mk_helper(parent, static_cast<const char *>(name.c_str()), static_cast<InodeType>(type));
+    if (res.is_err()) {
+        return 0;
+    }
+  return res.unwrap();
 }
 
 // {Your code here}
 auto MetadataServer::unlink(inode_id_t parent, const std::string &name)
     -> bool {
   // TODO: Implement this function.
-  UNIMPLEMENTED();
-
-  return false;
+  auto res = operation_->unlink(parent, static_cast<const char *>(name.c_str()));
+  if (res.is_err()) {
+    return false;
+  }
+    return true;
 }
 
 // {Your code here}
 auto MetadataServer::lookup(inode_id_t parent, const std::string &name)
     -> inode_id_t {
   // TODO: Implement this function.
-  UNIMPLEMENTED();
-
-  return 0;
+  auto res = operation_->lookup(parent, static_cast<const char *>(name.c_str()));
+    if (res.is_err()) {
+        return 0;
+    }
+    return res.unwrap();
 }
 
 // {Your code here}
 auto MetadataServer::get_block_map(inode_id_t id) -> std::vector<BlockInfo> {
   // TODO: Implement this function.
-  UNIMPLEMENTED();
-
-  return {};
+  auto buffer = operation_->read_file(id).unwrap();
+  std::vector<BlockInfo> res;
+    for (int i = 0; i < buffer.size()/ sizeof (BlockInfo); i += sizeof (BlockInfo)) {
+        res.push_back(BlockInfo(*reinterpret_cast<block_id_t*>(&buffer[i]),
+                                *reinterpret_cast<mac_id_t*>(&buffer[i + sizeof (block_id_t)]),
+                                *reinterpret_cast<version_t*>(&buffer[i + sizeof (block_id_t) + sizeof (mac_id_t)])));
+    }
+  return res;
 }
 
 // {Your code here}
 auto MetadataServer::allocate_block(inode_id_t id) -> BlockInfo {
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+        auto dataserver_id = generator.rand(1,num_data_servers);
+        auto res = clients_[dataserver_id]->call("alloc_block");
+        if (res.is_err()) {
+            return BlockInfo(0, 0, 0);
+        }
+        auto block_info = res.unwrap()->as<std::pair<block_id_t, version_t>>();
 
-  return {};
+        auto buffer = operation_->read_file(id).unwrap();
+        buffer.insert(buffer.end(), reinterpret_cast<unsigned char*>(&block_info.first),
+                      reinterpret_cast<unsigned char*>(&block_info.first) + sizeof(uint64_t));
+        buffer.insert(buffer.end(), reinterpret_cast<unsigned char*>(&dataserver_id),
+                      reinterpret_cast<unsigned char*>(&dataserver_id) + sizeof(uint64_t));
+        buffer.insert(buffer.end(), reinterpret_cast<unsigned char*>(&block_info.second),
+                        reinterpret_cast<unsigned char*>(&block_info.second) + sizeof(uint64_t));
+
+        operation_->write_file(id, buffer);
+        return BlockInfo (block_info.first, dataserver_id, block_info.second);
 }
 
 // {Your code here}
