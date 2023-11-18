@@ -157,10 +157,11 @@ auto MetadataServer::get_block_map(inode_id_t id) -> std::vector<BlockInfo> {
   // TODO: Implement this function.
   auto buffer = operation_->read_file(id).unwrap();
   std::vector<BlockInfo> res;
-    for (int i = 0; i < buffer.size()/ sizeof (BlockInfo); i += sizeof (BlockInfo)) {
-        res.push_back(BlockInfo(*reinterpret_cast<block_id_t*>(&buffer[i]),
-                                *reinterpret_cast<mac_id_t*>(&buffer[i + sizeof (block_id_t)]),
-                                *reinterpret_cast<version_t*>(&buffer[i + sizeof (block_id_t) + sizeof (mac_id_t)])));
+    size_t blockSize = sizeof(BlockInfo);
+    for (size_t i = 0; i + blockSize <= buffer.size(); i += blockSize) {
+        BlockInfo info;
+        std::memcpy(&info, buffer.data() + i, blockSize);
+        res.push_back(info);
     }
   return res;
 }
@@ -174,85 +175,94 @@ auto MetadataServer::allocate_block(inode_id_t id) -> BlockInfo {
             return BlockInfo(0, 0, 0);
         }
         auto block_info = res.unwrap()->as<std::pair<block_id_t, version_t>>();
+        BlockInfo ret_val = BlockInfo (block_info.first, dataserver_id, block_info.second);
 
+        std::vector<u8> block_info_buffer(sizeof (BlockInfo) / sizeof(u8));
+        *(BlockInfo *)(block_info_buffer.data()) = ret_val;
         auto buffer = operation_->read_file(id).unwrap();
-        buffer.insert(buffer.end(), reinterpret_cast<unsigned char*>(&block_info.first),
-                      reinterpret_cast<unsigned char*>(&block_info.first) + sizeof(block_id_t));
-        buffer.insert(buffer.end(), reinterpret_cast<unsigned char*>(&dataserver_id),
-                      reinterpret_cast<unsigned char*>(&dataserver_id) + sizeof(mac_id_t));
-        buffer.insert(buffer.end(), reinterpret_cast<unsigned char*>(&block_info.second),
-                        reinterpret_cast<unsigned char*>(&block_info.second) + sizeof(version_t));
-
+        buffer.insert(block_info_buffer.end(), block_info_buffer.begin(), block_info_buffer.end());
         operation_->write_file(id, buffer);
-        return BlockInfo (block_info.first, dataserver_id, block_info.second);
+        return ret_val;
 }
 
 // {Your code here}
-auto MetadataServer::free_block(inode_id_t id, block_id_t block_id,
-                                mac_id_t machine_id) -> bool {
-  // TODO: Implement this function.
-  auto res = clients_[machine_id]->call("free_block", block_id);
-  if (res.is_err()) {
-      return false;
-  }
-  auto buffer = operation_->read_file(id).unwrap();
-  for (int i = 0; i < buffer.size()/ sizeof (BlockInfo); i += sizeof (BlockInfo)) {
-      if (*reinterpret_cast<block_id_t*>(&buffer[i]) == block_id) {
-          buffer.erase(buffer.begin() + i, buffer.begin() + i + sizeof(BlockInfo));
-          operation_->write_file(id, buffer);
-          return true;
-      }
-  }
-
-  return false;
-}
+    auto MetadataServer::free_block(inode_id_t id, block_id_t block_id,
+                                    mac_id_t machine_id) -> bool {
+        // TODO: Implement this function.
+//  UNIMPLEMENTED();
+        auto call_res = ChfsResult<std::shared_ptr<RpcResponse>>{std::make_shared<RpcResponse>()};
+        {
+            std::scoped_lock<std::shared_mutex> lock(data_mutex_[machine_id - 1]);
+            call_res = clients_[machine_id]->call("free_block",block_id);
+        }
+        if(call_res.is_err()){
+            return false;
+        }
+        auto is_free = call_res.unwrap()->as<bool>();
+        if(!is_free){
+            return false;
+        }
+        {
+            std::scoped_lock<std::shared_mutex> lock(meta_mutex_);
+            auto buffer = operation_->read_file(id).unwrap();
+            u32 i = 0;
+            for(; i < buffer.size()*sizeof(u8) / sizeof(BlockInfo); ++i){
+                BlockInfo info = *((BlockInfo *) buffer.data() + i);
+                if (std::get<0>(info) == block_id && std::get<1>(info) == machine_id) {
+                    *((BlockInfo *)buffer.data() + i) = BlockInfo(0, 0, 0);
+                    break;
+                }
+            }
+            operation_->write_file(id,buffer);
+            return true;
+        }
+    }
 
 // {Your code here}
-auto MetadataServer::readdir(inode_id_t node)
+    auto MetadataServer::readdir(inode_id_t node)
     -> std::vector<std::pair<std::string, inode_id_t>> {
-  // TODO: Implement this function.
-    std::list<DirectoryEntry> list;
-    auto res = read_directory(operation_.get(), node, list);
-    if (res.is_err()) {
-        return {};
+        // TODO: Implement this function.
+//  UNIMPLEMENTED();
+        std::scoped_lock<std::shared_mutex> lock(meta_mutex_);
+        std::list<DirectoryEntry> list;
+        read_directory(operation_.get(),node,list);
+        auto res = std::vector<std::pair<std::string,inode_id_t>>();
+        for(const auto& item : list){
+            res.emplace_back(item.name,item.id);
+        }
+
+        return res;
     }
-    std::vector<std::pair<std::string, inode_id_t>> result;
-    for (auto iter = list.begin(); iter != list.end(); ++iter) {
-        result.push_back(std::make_pair(iter->name, iter->id));
-    }
-    return result;
-}
 
 // {Your code here}
-auto MetadataServer::get_type_attr(inode_id_t id)
+    auto MetadataServer::get_type_attr(inode_id_t id)
     -> std::tuple<u64, u64, u64, u64, u8> {
-  // TODO: Implement this function.
-    auto res = operation_->get_type_attr(id);
-    if (res.is_err()) {
-        return {};
+        // TODO: Implement this function.
+//  UNIMPLEMENTED();
+        std::scoped_lock<std::shared_mutex> lock(meta_mutex_);
+        auto type_attr = operation_->inode_manager_->get_type_attr(id).unwrap();
+        std::tuple<u64,u64,u64,u64,u8> res = {type_attr.second.size, type_attr.second.atime, type_attr.second.mtime, type_attr.second.ctime,
+                                              static_cast<u8>(type_attr.first)};
+        return res;
     }
-    auto pair = res.unwrap();
-    return std::make_tuple(pair.second.size, pair.second.atime, pair.second.mtime, pair.second.ctime,
-                           static_cast<chfs::u8>(pair.first));
-}
 
-auto MetadataServer::reg_server(const std::string &address, u16 port,
-                                bool reliable) -> bool {
-  num_data_servers += 1;
-  auto cli = std::make_shared<RpcClient>(address, port, reliable);
-  clients_.insert(std::make_pair(num_data_servers, cli));
+    auto MetadataServer::reg_server(const std::string &address, u16 port,
+                                    bool reliable) -> bool {
+        num_data_servers += 1;
+        auto cli = std::make_shared<RpcClient>(address, port, reliable);
+        clients_.insert(std::make_pair(num_data_servers, cli));
 
-  return true;
-}
+        return true;
+    }
 
-auto MetadataServer::run() -> bool {
-  if (running)
-    return false;
-
-  // Currently we only support async start
-  server_->run(true, num_worker_threads);
-  running = true;
-  return true;
-}
+    auto MetadataServer::run() -> bool {
+        if (running)
+            return false;
+        data_mutex_ = std::vector<std::shared_mutex>(num_data_servers);
+        // Currently we only support async start
+        server_->run(true, num_worker_threads);
+        running = true;
+        return true;
+    }
 
 } // namespace chfs
