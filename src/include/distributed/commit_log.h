@@ -62,6 +62,7 @@ public:
   /**
    * {Append anything if you need}
    */
+   static txn_id_t global_txn_id_;
 private:
     // blocks allocate
     block_id_t entry_table_; // 4096 - 1024 + 1

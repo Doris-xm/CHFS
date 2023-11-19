@@ -15,6 +15,7 @@ namespace chfs {
 CommitLog::CommitLog(std::shared_ptr<BlockManager> bm,
                      bool is_checkpoint_enabled)
     : is_checkpoint_enabled_(is_checkpoint_enabled), bm_(bm) {
+    this->global_txn_id_ = 0;
     this->entry_table_ = KDefaultBlockCnt - 1024 + 1; //4096 - 1024 + 1;
     this->entry_per_block_ = DiskBlockSize / sizeof(LogEntry);
     this->entry_num_ = 5;

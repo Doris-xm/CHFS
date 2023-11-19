@@ -127,9 +127,14 @@ auto MetadataServer::mknode(u8 type, inode_id_t parent, const std::string &name)
     -> inode_id_t {
   // TODO: Implement this function.
     std::scoped_lock<std::shared_mutex> lock(metadata_mutex);
-    auto res = operation_->mk_helper(parent, name.c_str(), static_cast<InodeType>(type));
+    std::vector<std::shared_ptr<BlockOperation>> ops;
+    auto res = operation_->mk_helper(parent, name.c_str(), static_cast<InodeType>(type), &ops);
     if (res.is_err()) {
         return 0;
+    }
+    if(is_log_enabled_) {
+        commit_log->append_log(CommitLog::global_txn_id_, ops);
+        CommitLog::global_txn_id_++;
     }
   return res.unwrap();
 }
