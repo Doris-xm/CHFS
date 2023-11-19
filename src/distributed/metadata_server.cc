@@ -180,70 +180,57 @@ auto MetadataServer::allocate_block(inode_id_t id) -> BlockInfo {
         std::vector<u8> block_info_buffer(sizeof (BlockInfo) / sizeof(u8));
         *(BlockInfo *)(block_info_buffer.data()) = ret_val;
         auto buffer = operation_->read_file(id).unwrap();
-        buffer.insert(block_info_buffer.end(), block_info_buffer.begin(), block_info_buffer.end());
+        buffer.insert(buffer.end(), block_info_buffer.begin(), block_info_buffer.end());
         operation_->write_file(id, buffer);
         return ret_val;
 }
 
 // {Your code here}
-    auto MetadataServer::free_block(inode_id_t id, block_id_t block_id,
-                                    mac_id_t machine_id) -> bool {
-        // TODO: Implement this function.
-//  UNIMPLEMENTED();
-        auto call_res = ChfsResult<std::shared_ptr<RpcResponse>>{std::make_shared<RpcResponse>()};
-        {
-            std::scoped_lock<std::shared_mutex> lock(data_mutex_[machine_id - 1]);
-            call_res = clients_[machine_id]->call("free_block",block_id);
-        }
-        if(call_res.is_err()){
-            return false;
-        }
-        auto is_free = call_res.unwrap()->as<bool>();
-        if(!is_free){
-            return false;
-        }
-        {
-            std::scoped_lock<std::shared_mutex> lock(meta_mutex_);
-            auto buffer = operation_->read_file(id).unwrap();
-            u32 i = 0;
-            for(; i < buffer.size()*sizeof(u8) / sizeof(BlockInfo); ++i){
-                BlockInfo info = *((BlockInfo *) buffer.data() + i);
-                if (std::get<0>(info) == block_id && std::get<1>(info) == machine_id) {
-                    *((BlockInfo *)buffer.data() + i) = BlockInfo(0, 0, 0);
-                    break;
-                }
-            }
-            operation_->write_file(id,buffer);
+auto MetadataServer::free_block(inode_id_t id, block_id_t block_id,
+                                mac_id_t machine_id) -> bool {
+    // TODO: Implement this function.
+    auto res = clients_[machine_id]->call("free_block", block_id);
+    if (res.is_err()) {
+        return false;
+    }
+    auto buffer = operation_->read_file(id).unwrap();
+    for (int i = 0; i < buffer.size()/ sizeof (BlockInfo); i += sizeof (BlockInfo)) {
+        if (*reinterpret_cast<block_id_t*>(&buffer[i]) == block_id) {
+            buffer.erase(buffer.begin() + i, buffer.begin() + i + sizeof(BlockInfo));
+            operation_->write_file(id, buffer);
             return true;
         }
     }
+    return false;
+}
 
 // {Your code here}
     auto MetadataServer::readdir(inode_id_t node)
     -> std::vector<std::pair<std::string, inode_id_t>> {
         // TODO: Implement this function.
-//  UNIMPLEMENTED();
-        std::scoped_lock<std::shared_mutex> lock(meta_mutex_);
         std::list<DirectoryEntry> list;
-        read_directory(operation_.get(),node,list);
-        auto res = std::vector<std::pair<std::string,inode_id_t>>();
-        for(const auto& item : list){
-            res.emplace_back(item.name,item.id);
+        auto res = read_directory(operation_.get(), node, list);
+        if (res.is_err()) {
+            return {};
         }
-
-        return res;
+        std::vector<std::pair<std::string, inode_id_t>> result;
+        for (auto iter = list.begin(); iter != list.end(); ++iter) {
+            result.push_back(std::make_pair(iter->name, iter->id));
+        }
+        return result;
     }
 
 // {Your code here}
     auto MetadataServer::get_type_attr(inode_id_t id)
     -> std::tuple<u64, u64, u64, u64, u8> {
         // TODO: Implement this function.
-//  UNIMPLEMENTED();
-        std::scoped_lock<std::shared_mutex> lock(meta_mutex_);
-        auto type_attr = operation_->inode_manager_->get_type_attr(id).unwrap();
-        std::tuple<u64,u64,u64,u64,u8> res = {type_attr.second.size, type_attr.second.atime, type_attr.second.mtime, type_attr.second.ctime,
-                                              static_cast<u8>(type_attr.first)};
-        return res;
+        auto res = operation_->get_type_attr(id);
+        if (res.is_err()) {
+            return {};
+        }
+        auto pair = res.unwrap();
+        return std::make_tuple(pair.second.size, pair.second.atime, pair.second.mtime, pair.second.ctime,
+                               static_cast<chfs::u8>(pair.first));
     }
 
     auto MetadataServer::reg_server(const std::string &address, u16 port,
@@ -258,7 +245,7 @@ auto MetadataServer::allocate_block(inode_id_t id) -> BlockInfo {
     auto MetadataServer::run() -> bool {
         if (running)
             return false;
-        data_mutex_ = std::vector<std::shared_mutex>(num_data_servers);
+
         // Currently we only support async start
         server_->run(true, num_worker_threads);
         running = true;
