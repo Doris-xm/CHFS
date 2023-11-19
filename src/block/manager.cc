@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include "block/manager.h"
+#include "distributed/commit_log.h"
 
 namespace chfs {
 
@@ -88,16 +89,19 @@ BlockManager::BlockManager(const std::string &file, usize block_cnt, bool is_log
         initialize_file(this->fd, this->total_storage_sz());
     } else {
         this->block_cnt = file_sz / this->block_sz;
-        CHFS_ASSERT(this->total_storage_sz() == KDefaultBlockCnt * this->block_sz,
-                    "The file size mismatches");
     }
-    if(is_log_enabled){
-        //reserve 1024 blocks for the log
+
+    this->block_data =
+            static_cast<u8 *>(mmap(nullptr, this->total_storage_sz(),
+                                   PROT_READ | PROT_WRITE, MAP_SHARED, this->fd, 0));
+    CHFS_ASSERT(this->block_data != MAP_FAILED, "Failed to mmap the data");
+
+    if (is_log_enabled) {
         this->block_cnt -= 1024;
     }
 }
 
-auto BlockManager::write_block(block_id_t block_id, const u8 *data)
+auto BlockManager::write_block(block_id_t block_id, const u8 *data,std::vector<std::shared_ptr<BlockOperation>> *ops)
     -> ChfsNullResult {
   if (this->maybe_failed && block_id < this->block_cnt) {
     if (this->write_fail_cnt >= 3) {
@@ -111,6 +115,11 @@ auto BlockManager::write_block(block_id_t block_id, const u8 *data)
   if (block_id >= this->block_cnt) {
     return ChfsNullResult(ErrorType::INVALID_ARG);
   }
+  if(ops) {
+      std::vector<u8> vec;
+      vec.assign(data, data + this->block_sz);
+      ops->emplace_back(std::make_shared<BlockOperation>(block_id, vec));
+  }
   memcpy(&this->block_data[block_id * this->block_sz], data, this->block_sz);
   this->write_fail_cnt++;
 
@@ -118,7 +127,7 @@ auto BlockManager::write_block(block_id_t block_id, const u8 *data)
 }
 
 auto BlockManager::write_partial_block(block_id_t block_id, const u8 *data,
-                                       usize offset, usize len)
+                                       usize offset, usize len, std::vector<std::shared_ptr<BlockOperation>> *ops)
     -> ChfsNullResult {
   if (this->maybe_failed && block_id < this->block_cnt) {
     if (this->write_fail_cnt >= 3) {

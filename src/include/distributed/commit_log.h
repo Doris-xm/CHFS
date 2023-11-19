@@ -29,6 +29,12 @@ namespace chfs {
  * a new block state. It's used to redo the operation when
  * the system is crashed.
  */
+
+struct LogEntry {
+    block_id_t log_data_id_;
+    block_id_t block_id_;
+    txn_id_t txn_id_;
+};
 class BlockOperation {
 public:
   explicit BlockOperation(block_id_t block_id, std::vector<u8> new_block_state)
@@ -62,7 +68,7 @@ public:
   /**
    * {Append anything if you need}
    */
-   static txn_id_t global_txn_id_;
+  txn_id_t global_txn_id_;
 private:
     // blocks allocate
     block_id_t entry_table_; // 4096 - 1024 + 1
@@ -75,12 +81,9 @@ private:
     block_id_t log_data_;
     uint32_t log_data_num_; // 4096 - 1024 - 1 - 1 - 1 = 3070
 
+    uint32_t total_commit_;
+
 };
 
-struct LogEntry {
-    block_id_t log_data_id_;
-    block_id_t block_id_;
-    txn_id_t txn_id_;
-};
 
 } // namespace chfs

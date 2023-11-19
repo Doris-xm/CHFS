@@ -71,7 +71,7 @@ public:
    * @param type: file type
    * @param bid: inode block ID
    */
-  auto allocate_inode(InodeType type, block_id_t bid) -> ChfsResult<inode_id_t>;
+  auto allocate_inode(InodeType type, block_id_t bid, std::vector<std::shared_ptr<BlockOperation>> *ops = nullptr) -> ChfsResult<inode_id_t>;
 
   /**
    * Get the number of free inodes

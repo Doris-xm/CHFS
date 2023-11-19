@@ -133,8 +133,12 @@ auto MetadataServer::mknode(u8 type, inode_id_t parent, const std::string &name)
         return 0;
     }
     if(is_log_enabled_) {
-        commit_log->append_log(CommitLog::global_txn_id_, ops);
-        CommitLog::global_txn_id_++;
+        commit_log->append_log(commit_log->global_txn_id_, ops);
+        commit_log->commit_log(commit_log->global_txn_id_ );
+        commit_log->global_txn_id_++;
+    }
+    if(is_checkpoint_enabled_) {
+        commit_log->checkpoint();
     }
   return res.unwrap();
 }

@@ -135,7 +135,7 @@ auto FileOperation::lookup(inode_id_t id, const char *name)
 }
 
 // {Your code here}
-auto FileOperation::mk_helper(inode_id_t id, const char *name, InodeType type)
+auto FileOperation::mk_helper(inode_id_t id, const char *name, InodeType type, std::vector<std::shared_ptr<BlockOperation>> *ops)
     -> ChfsResult<inode_id_t> {
 
   // TODO:
@@ -145,7 +145,7 @@ auto FileOperation::mk_helper(inode_id_t id, const char *name, InodeType type)
       return ChfsResult<inode_id_t>(ErrorType::AlreadyExist);
 
   // 2. Create the new inode.
-  auto alloc_res = alloc_inode(type);
+  auto alloc_res = alloc_inode(type, ops);
   if(alloc_res.is_err())
       return alloc_res.unwrap_error();
 
@@ -158,7 +158,7 @@ auto FileOperation::mk_helper(inode_id_t id, const char *name, InodeType type)
   std::string src = std::string(content.begin(), content.end());
   std::string append_src = append_to_directory(src, name, alloc_res.unwrap());
 
-  auto write_res = write_file(id, std::vector<u8>(append_src.begin(), append_src.end()));
+  auto write_res = write_file(id, std::vector<u8>(append_src.begin(), append_src.end()), ops);
   if(write_res.is_err())
       return write_res.unwrap_error();
   return ChfsResult<inode_id_t>(alloc_res.unwrap());

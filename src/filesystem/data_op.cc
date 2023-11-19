@@ -5,18 +5,18 @@
 namespace chfs {
 
 // {Your code here}
-auto FileOperation::alloc_inode(InodeType type) -> ChfsResult<inode_id_t> {
+auto FileOperation::alloc_inode(InodeType type, std::vector<std::shared_ptr<BlockOperation>> *ops) -> ChfsResult<inode_id_t> {
   inode_id_t inode_id = static_cast<inode_id_t>(0);
   auto inode_res = ChfsResult<inode_id_t>(inode_id);
 
   // TODO:
   // 1. Allocate a block for the inode.
-  auto bid = this->block_allocator_->allocate();
+  auto bid = this->block_allocator_->allocate(ops);
   if(bid.is_err()) {
     return ChfsResult<inode_id_t>(bid.unwrap_error());
   }
   // 2. Allocate an inode.
-  inode_res = this->inode_manager_->allocate_inode(type, bid.unwrap());
+  inode_res = this->inode_manager_->allocate_inode(type, bid.unwrap(),ops);
   if(inode_res.is_err()) {
     return ChfsResult<inode_id_t>(inode_res.unwrap_error());
   }
@@ -64,7 +64,7 @@ auto FileOperation::write_file_w_off(inode_id_t id, const char *data, u64 sz,
 }
 
 // {Your code here}
-auto FileOperation::write_file(inode_id_t id, const std::vector<u8> &content)
+auto FileOperation::write_file(inode_id_t id, const std::vector<u8> &content,std::vector<std::shared_ptr<BlockOperation>> *ops)
     -> ChfsNullResult {
   auto error_code = ErrorType::DONE;
   const auto block_size = this->block_manager_->block_size();
@@ -112,7 +112,7 @@ auto FileOperation::write_file(inode_id_t id, const std::vector<u8> &content)
       //    You may use function `get_or_insert_indirect_block`
       //    in the case of indirect block.
       if (inode_p->is_direct_block(idx)) {
-          auto bid = this->block_allocator_->allocate();
+          auto bid = this->block_allocator_->allocate(ops);
           if(bid.is_err()) {
               error_code = bid.unwrap_error();
               goto err_ret;
@@ -132,7 +132,7 @@ auto FileOperation::write_file(inode_id_t id, const std::vector<u8> &content)
           }
 
           auto indirect_p = reinterpret_cast<block_id_t *>(indirect_block.data());
-          auto new_bid = this->block_allocator_->allocate();
+          auto new_bid = this->block_allocator_->allocate(ops);
           if(new_bid.is_err()) {
               error_code = new_bid.unwrap_error();
               goto err_ret;

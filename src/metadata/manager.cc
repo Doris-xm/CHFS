@@ -67,7 +67,7 @@ auto InodeManager::create_from_block_manager(std::shared_ptr<BlockManager> bm,
 }
 
 // { Your code here }
-auto InodeManager::allocate_inode(InodeType type, block_id_t bid)
+auto InodeManager::allocate_inode(InodeType type, block_id_t bid, std::vector<std::shared_ptr<BlockOperation>> *ops)
     -> ChfsResult<inode_id_t> {
   auto iter_res = BlockIterator::create(this->bm.get(), 1 + n_table_blocks,
                                         1 + n_table_blocks + n_bitmap_blocks);
@@ -103,7 +103,7 @@ auto InodeManager::allocate_inode(InodeType type, block_id_t bid)
       Inode inode(type, bm->block_size());
       u8 buffer[bm->block_size()];
       inode.flush_to_buffer(buffer);
-      bm->write_block(bid, buffer);
+      bm->write_block(bid, buffer, ops);
 
       block_id_t idx = count * bm->block_size()  * KBitsPerByte + free_idx.value();
       set_table(idx, bid);

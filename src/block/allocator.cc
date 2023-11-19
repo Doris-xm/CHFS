@@ -91,7 +91,7 @@ BlockAllocator::BlockAllocator(std::shared_ptr<BlockManager> block_manager,
 }
 
 // Your implementation
-auto BlockAllocator::allocate() -> ChfsResult<block_id_t> {
+auto BlockAllocator::allocate(std::vector<std::shared_ptr<BlockOperation>> *ops) -> ChfsResult<block_id_t> {
   std::vector<u8> buffer(bm->block_size());
 
   for (uint i = 0; i < this->bitmap_block_cnt; i++) {
@@ -124,7 +124,7 @@ auto BlockAllocator::allocate() -> ChfsResult<block_id_t> {
       // 2. Flush the changed bitmap block back to the block manager.
       // 3. Calculate the value of `retval`.
       bitmap.set(res.value());
-      bm->write_block(i + this->bitmap_block_id, buffer.data());
+      bm->write_block(i + this->bitmap_block_id, buffer.data(),ops);
       retval = i * bm->block_size() * KBitsPerByte + res.value();
 
       return ChfsResult<block_id_t>(retval);
