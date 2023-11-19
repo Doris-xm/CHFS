@@ -97,7 +97,7 @@ MetadataServer::MetadataServer(u16 port, const std::string &data_path,
                                bool may_failed)
     : is_log_enabled_(is_log_enabled), may_failed_(may_failed),
       is_checkpoint_enabled_(is_checkpoint_enabled) {
-  server_mutex = std::vector<std::shared_mutex>(num_data_servers + 1);
+//  server_mutex = std::vector<std::shared_mutex>(num_data_servers + 1);
   server_ = std::make_unique<RpcServer>(port);
   init_fs(data_path);
   if (is_log_enabled_) {
@@ -113,7 +113,7 @@ MetadataServer::MetadataServer(std::string const &address, u16 port,
     : is_log_enabled_(is_log_enabled), may_failed_(may_failed),
       is_checkpoint_enabled_(is_checkpoint_enabled) {
 
-  server_mutex = std::vector<std::shared_mutex>(num_data_servers + 1);
+//  server_mutex = std::vector<std::shared_mutex>(num_data_servers + 1);
   server_ = std::make_unique<RpcServer>(address, port);
   init_fs(data_path);
   if (is_log_enabled_) {
@@ -212,14 +212,16 @@ auto MetadataServer::free_block(inode_id_t id, block_id_t block_id,
     }
     std::unique_lock<std::shared_mutex> lock2(metadata_mutex);
     auto buffer = operation_->read_file(id).unwrap();
-    for (int i = 0; i < buffer.size()/ sizeof (BlockInfo); i += sizeof (BlockInfo)) {
-        if (*reinterpret_cast<block_id_t*>(&buffer[i]) == block_id) {
+    for (int i = 0; i < buffer.size(); i += sizeof (BlockInfo)) {
+        auto block_info = *(BlockInfo *)(buffer.data() + i);
+
+        if(std::get<0>(block_info) == block_id && std::get<1>(block_info) == machine_id){
             buffer.erase(buffer.begin() + i, buffer.begin() + i + sizeof(BlockInfo));
             operation_->write_file(id, buffer);
+            lock2.unlock();
             return true;
         }
     }
-    lock2.unlock();
     return false;
 }
 
@@ -270,6 +272,7 @@ auto MetadataServer::free_block(inode_id_t id, block_id_t block_id,
             return false;
 
         // Currently we only support async start
+        server_mutex = std::vector<std::shared_mutex>(num_data_servers + 1);
         server_->run(true, num_worker_threads);
         running = true;
         return true;
