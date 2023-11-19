@@ -18,6 +18,7 @@
 #include "metadata/manager.h"
 #include "filesystem/operations.h"
 #include "distributed/commit_log.h"
+#include <shared_mutex>
 
 namespace chfs {
 
@@ -164,7 +165,7 @@ public:
    * A RPC handler for client. It returns the type and attribute of a file
    *
    * @param id: The inode id of the file
-   * 
+   *
    * @return: a tuple of <size, atime, mtime, ctime, type>
    */
   auto get_type_attr(inode_id_t id) -> std::tuple<u64, u64, u64, u64, u8>;
@@ -245,6 +246,8 @@ private:
   /**
    * {You can add anything you want here}
    */
+  std::shared_mutex metadata_mutex;
+  std::vector<std::shared_mutex> server_mutex;
 };
 
 } // namespace chfs
