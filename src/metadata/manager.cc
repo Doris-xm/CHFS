@@ -105,7 +105,7 @@ auto InodeManager::allocate_inode(InodeType type, block_id_t bid)
       inode.flush_to_buffer(buffer);
       bm->write_block(bid, buffer);
 
-      block_id_t idx = count * bm->block_size() + free_idx.value();
+      block_id_t idx = count * bm->block_size()  * KBitsPerByte + free_idx.value();
       set_table(idx, bid);
 
       return RAW_2_LOGIC(idx);
@@ -168,9 +168,9 @@ auto InodeManager::free_inode_cnt() const -> ChfsResult<u64> {
 
     count += bitmap.count_zeros();
 
-    auto iter_res = iter.next(bm->block_size());
-    if (iter_res.is_err()) {
-      return ChfsResult<u64>(iter_res.unwrap_error());
+    auto iter_result = iter.next(bm->block_size());
+    if (iter_result.is_err()) {
+      return ChfsResult<u64>(iter_result.unwrap_error());
     }
   }
   return ChfsResult<u64>(count);
