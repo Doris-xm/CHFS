@@ -115,7 +115,7 @@ auto BlockManager::write_partial_block(block_id_t block_id, const u8 *data,
   }
 
   // TODO: Implement this function.
-    if (block_id >= this->block_cnt || (offset + len) >= this->block_sz) {
+    if (block_id >= this->block_cnt) {
         return ChfsNullResult(ErrorType::INVALID_ARG);
     }
     memcpy(&this->block_data[block_id * this->block_sz + offset], data, len);
