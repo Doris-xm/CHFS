@@ -81,7 +81,20 @@ BlockManager::BlockManager(const std::string &file, usize block_cnt, bool is_log
   this->write_fail_cnt = 0;
   this->maybe_failed = false;
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+    this->fd = open(file.c_str(), O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+    CHFS_ASSERT(this->fd != -1, "Failed to open the block manager file");
+    auto file_sz = get_file_sz(this->file_name_);
+    if (file_sz == 0) {
+        initialize_file(this->fd, this->total_storage_sz());
+    } else {
+        this->block_cnt = file_sz / this->block_sz;
+        CHFS_ASSERT(this->total_storage_sz() == KDefaultBlockCnt * this->block_sz,
+                    "The file size mismatches");
+    }
+    if(is_log_enabled){
+        //reserve 1024 blocks for the log
+        this->block_cnt -= 1024;
+    }
 }
 
 auto BlockManager::write_block(block_id_t block_id, const u8 *data)

@@ -62,6 +62,24 @@ public:
   /**
    * {Append anything if you need}
    */
+private:
+    // blocks allocate
+    block_id_t entry_table_; // 4096 - 1024 + 1
+    uint32_t entry_per_block_;
+    uint32_t entry_num_; // 5
+    block_id_t commit_table_;
+    uint32_t commit_num_; // 1
+    block_id_t bit_map_;
+    uint32_t bit_map_num_; // 1
+    block_id_t log_data_;
+    uint32_t log_data_num_; // 4096 - 1024 - 1 - 1 - 1 = 3070
+
+};
+
+struct LogEntry {
+    block_id_t log_data_id_;
+    block_id_t block_id_;
+    txn_id_t txn_id_;
 };
 
 } // namespace chfs
