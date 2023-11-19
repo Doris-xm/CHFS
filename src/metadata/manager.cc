@@ -103,10 +103,13 @@ auto InodeManager::allocate_inode(InodeType type, block_id_t bid, std::vector<st
       Inode inode(type, bm->block_size());
       u8 buffer[bm->block_size()];
       inode.flush_to_buffer(buffer);
-      bm->write_block(bid, buffer, ops);
+      auto write_res = bm->write_block(bid, buffer, ops);
+      if (write_res.is_err()) {
+        return ChfsResult<inode_id_t>(write_res.unwrap_error());
+      }
 
       block_id_t idx = count * bm->block_size()  * KBitsPerByte + free_idx.value();
-      set_table(idx, bid);
+      set_table(idx, bid, ops);
 
       return RAW_2_LOGIC(idx);
 
@@ -117,7 +120,7 @@ auto InodeManager::allocate_inode(InodeType type, block_id_t bid, std::vector<st
 }
 
 // { Your code here }
-auto InodeManager::set_table(inode_id_t idx, block_id_t bid) -> ChfsNullResult {
+auto InodeManager::set_table(inode_id_t idx, block_id_t bid,std::vector<std::shared_ptr<BlockOperation>> *ops) -> ChfsNullResult {
 
   // TODO: Implement this function.
   // Fill `bid` into the inode table entry
@@ -129,7 +132,7 @@ auto InodeManager::set_table(inode_id_t idx, block_id_t bid) -> ChfsNullResult {
   block_id_t *block_data = (block_id_t *)data;
   block_data[idx % inode_per_block] = bid;
 
-  this->bm->write_block(block_entry_id, data);
+  this->bm->write_block(block_entry_id, data, ops);
 
   return KNullOk;
 }
@@ -232,7 +235,7 @@ auto InodeManager::read_inode(inode_id_t id, std::vector<u8> &buffer)
 }
 
 // {Your code}
-auto InodeManager::free_inode(inode_id_t id) -> ChfsNullResult {
+auto InodeManager::free_inode(inode_id_t id, std::vector<std::shared_ptr<BlockOperation>> *ops) -> ChfsNullResult {
 
   // simple pre-checks
   if (id >= max_inode_supported - 1) {
@@ -250,12 +253,12 @@ auto InodeManager::free_inode(inode_id_t id) -> ChfsNullResult {
   this->bm->read_block(LOGIC_2_RAW(id) / inode_per_block + 1, buf);
   for(int i = 0; i < 8; i++)
     buf[LOGIC_2_RAW(id) % inode_per_block * 8 + i] = 0;
-  this->bm->write_block(LOGIC_2_RAW(id) / inode_per_block + 1, buf);
+  this->bm->write_block(LOGIC_2_RAW(id) / inode_per_block + 1, buf, ops);
 
   this->bm->read_block(this->n_table_blocks + LOGIC_2_RAW(id) / (KBitsPerByte * bm->block_size()) + 1, buf);
   Bitmap bitmap(buf, this->bm->block_size());
   bitmap.clear(LOGIC_2_RAW(id) %  (KBitsPerByte * bm->block_size()));
-  this->bm->write_block(this->n_table_blocks + LOGIC_2_RAW(id) / (KBitsPerByte * bm->block_size()) + 1, buf);
+  this->bm->write_block(this->n_table_blocks + LOGIC_2_RAW(id) / (KBitsPerByte * bm->block_size()) + 1, buf, ops);
 
   return KNullOk;
 }

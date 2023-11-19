@@ -127,20 +127,28 @@ auto MetadataServer::mknode(u8 type, inode_id_t parent, const std::string &name)
     -> inode_id_t {
   // TODO: Implement this function.
     std::scoped_lock<std::shared_mutex> lock(metadata_mutex);
-    std::vector<std::shared_ptr<BlockOperation>> ops;
-    auto res = operation_->mk_helper(parent, name.c_str(), static_cast<InodeType>(type), &ops);
-    if (res.is_err()) {
-        return 0;
-    }
     if(is_log_enabled_) {
+        std::vector<std::shared_ptr<BlockOperation>> ops;
+        auto res = operation_->mk_helper(parent, name.c_str(), static_cast<InodeType>(type), &ops);
         commit_log->append_log(commit_log->global_txn_id_, ops);
         commit_log->commit_log(commit_log->global_txn_id_ );
         commit_log->global_txn_id_++;
+        if(is_checkpoint_enabled_) {
+            commit_log->checkpoint();
+        }
+        if (res.is_err()) {
+            return 0;
+        }
+        return res.unwrap();
     }
-    if(is_checkpoint_enabled_) {
-        commit_log->checkpoint();
+    else {
+        auto res = operation_->mk_helper(parent, name.c_str(), static_cast<InodeType>(type));
+        if (res.is_err()) {
+            return 0;
+        }
+        return res.unwrap();
     }
-  return res.unwrap();
+
 }
 
 // {Your code here}
@@ -148,10 +156,26 @@ auto MetadataServer::unlink(inode_id_t parent, const std::string &name)
     -> bool {
   // TODO: Implement this function.
   std::scoped_lock<std::shared_mutex> lock(metadata_mutex);
-  auto res = operation_->unlink(parent, name.c_str());
-  if (res.is_err()) {
-    return false;
+  if(is_log_enabled_) {
+      std::vector<std::shared_ptr<BlockOperation>> ops;
+      auto res = operation_->unlink(parent, name.c_str(), &ops);
+      if (res.is_err()) {
+          return false;
+      }
+      commit_log->append_log(commit_log->global_txn_id_, ops);
+      commit_log->commit_log(commit_log->global_txn_id_ );
+      commit_log->global_txn_id_++;
+      if(is_checkpoint_enabled_) {
+          commit_log->checkpoint();
+      }
   }
+  else {
+      auto res = operation_->unlink(parent, name.c_str());
+      if (res.is_err()) {
+          return false;
+      }
+  }
+
     return true;
 }
 

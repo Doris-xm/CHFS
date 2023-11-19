@@ -101,8 +101,15 @@ BlockManager::BlockManager(const std::string &file, usize block_cnt, bool is_log
     }
 }
 
-auto BlockManager::write_block(block_id_t block_id, const u8 *data,std::vector<std::shared_ptr<BlockOperation>> *ops)
+auto BlockManager::write_block(block_id_t block_id, const u8 *data,std::vector<std::shared_ptr<BlockOperation>> *ops,
+                               usize log_num)
     -> ChfsNullResult {
+
+    if(ops) {
+        std::vector<u8> vec;
+        vec.assign(data, data + this->block_sz);
+        ops->emplace_back(std::make_shared<BlockOperation>(block_id, vec));
+    }
   if (this->maybe_failed && block_id < this->block_cnt) {
     if (this->write_fail_cnt >= 3) {
       this->write_fail_cnt = 0;
@@ -112,13 +119,8 @@ auto BlockManager::write_block(block_id_t block_id, const u8 *data,std::vector<s
 
 
   // TODO: Implement this function.
-  if (block_id >= this->block_cnt) {
+  if (block_id >= (this->block_cnt + log_num)) {
     return ChfsNullResult(ErrorType::INVALID_ARG);
-  }
-  if(ops) {
-      std::vector<u8> vec;
-      vec.assign(data, data + this->block_sz);
-      ops->emplace_back(std::make_shared<BlockOperation>(block_id, vec));
   }
   memcpy(&this->block_data[block_id * this->block_sz], data, this->block_sz);
   this->write_fail_cnt++;
@@ -129,6 +131,11 @@ auto BlockManager::write_block(block_id_t block_id, const u8 *data,std::vector<s
 auto BlockManager::write_partial_block(block_id_t block_id, const u8 *data,
                                        usize offset, usize len, std::vector<std::shared_ptr<BlockOperation>> *ops)
     -> ChfsNullResult {
+    if(ops) {
+        std::vector<u8> vec;
+        vec.assign(data, data + this->block_sz);
+        ops->emplace_back(std::make_shared<BlockOperation>(block_id, vec));
+    }
   if (this->maybe_failed && block_id < this->block_cnt) {
     if (this->write_fail_cnt >= 3) {
       this->write_fail_cnt = 0;

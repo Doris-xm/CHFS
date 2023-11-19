@@ -166,7 +166,7 @@ auto FileOperation::mk_helper(inode_id_t id, const char *name, InodeType type, s
 }
 
 // {Your code here}
-auto FileOperation::unlink(inode_id_t parent, const char *name)
+auto FileOperation::unlink(inode_id_t parent, const char *name,std::vector<std::shared_ptr<BlockOperation>> *ops)
     -> ChfsNullResult {
 
   // TODO: 
@@ -176,7 +176,7 @@ auto FileOperation::unlink(inode_id_t parent, const char *name)
   if(lookup_res.is_err())
       return lookup_res.unwrap_error();
 
-  auto remove_res = remove_file(lookup_res.unwrap());
+  auto remove_res = remove_file(lookup_res.unwrap(), ops);
   if(remove_res.is_err())
       return remove_res.unwrap_error();
 
@@ -194,7 +194,7 @@ auto FileOperation::unlink(inode_id_t parent, const char *name)
   }
   std::string src = dir_list_to_string(list);
 
-  auto write_res = write_file(parent, std::vector<u8>(src.begin(), src.end()));
+  auto write_res = write_file(parent, std::vector<u8>(src.begin(), src.end()),ops);
   if(write_res.is_err())
       return write_res.unwrap_error();
   

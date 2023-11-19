@@ -96,7 +96,7 @@ public:
    * @return INVALID_ARG if the block id is freed.
    *         other error code if there is other error.
    */
-  auto deallocate(block_id_t block_id) -> ChfsNullResult;
+  auto deallocate(block_id_t block_id, std::vector<std::shared_ptr<BlockOperation>> *ops= nullptr) -> ChfsNullResult;
 };
 
 } // namespace chfs

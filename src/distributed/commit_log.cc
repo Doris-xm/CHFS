@@ -71,11 +71,12 @@ auto CommitLog::append_log(txn_id_t txn_id,
                                log_data_id.value() % entry_per_block_, sizeof(LogEntry));
 
       //write log data
-      bm_->write_block(log_data_id.value() + this->log_data_, iter->new_block_state_.data());
+      bm_->write_block(log_data_id.value() + this->log_data_, iter->new_block_state_.data()
+                                , nullptr, 1024);
 
   }
 
-  bm_->write_block(bit_map_, bitmap_buf.data());
+  bm_->write_block(bit_map_, bitmap_buf.data(),nullptr, 1024);
 
 
 }
@@ -127,7 +128,7 @@ auto CommitLog::recover() -> void {
                 if (entry_table[i].txn_id_ == commit_table[i]) {
                     std::vector<u8> log_data_buf(DiskBlockSize);
                     bm_->read_block(entry_table[i].log_data_id_, log_data_buf.data());
-                    bm_->write_block(entry_table[i].block_id_, log_data_buf.data());
+                    bm_->write_block(entry_table[i].block_id_, log_data_buf.data(), nullptr, 1024);
                     bm_->sync(entry_table[i].block_id_);
                 }
             }
@@ -135,7 +136,7 @@ auto CommitLog::recover() -> void {
   }
   // clear the commit table
   std::vector<u8> zero_buf(DiskBlockSize);
-  bm_->write_block(commit_table_, zero_buf.data());
+  bm_->write_block(commit_table_, zero_buf.data(), nullptr, 1024);
   total_commit_ = 0;
 }
 }; // namespace chfs

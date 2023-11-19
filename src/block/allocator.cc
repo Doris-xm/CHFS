@@ -124,7 +124,10 @@ auto BlockAllocator::allocate(std::vector<std::shared_ptr<BlockOperation>> *ops)
       // 2. Flush the changed bitmap block back to the block manager.
       // 3. Calculate the value of `retval`.
       bitmap.set(res.value());
-      bm->write_block(i + this->bitmap_block_id, buffer.data(),ops);
+      auto write_res = bm->write_block(i + this->bitmap_block_id, buffer.data(),ops);
+      if(!write_res.is_ok()){
+          return ChfsResult<block_id_t>(write_res.unwrap_error());
+      }
       retval = i * bm->block_size() * KBitsPerByte + res.value();
 
       return ChfsResult<block_id_t>(retval);
@@ -134,7 +137,7 @@ auto BlockAllocator::allocate(std::vector<std::shared_ptr<BlockOperation>> *ops)
 }
 
 // Your implementation
-auto BlockAllocator::deallocate(block_id_t block_id) -> ChfsNullResult {
+auto BlockAllocator::deallocate(block_id_t block_id,std::vector<std::shared_ptr<BlockOperation>> *ops) -> ChfsNullResult {
   if (block_id >= this->bm->total_blocks()) {
     return ChfsNullResult(ErrorType::INVALID_ARG);
   }
@@ -150,7 +153,7 @@ auto BlockAllocator::deallocate(block_id_t block_id) -> ChfsNullResult {
 
   Bitmap bitmap(buffer.data(), bm->block_size());
   bitmap.clear(block_id % (bm->block_size() * KBitsPerByte));
-  bm->write_block(bitmap_id + this->bitmap_block_id, buffer.data());
+  bm->write_block(bitmap_id + this->bitmap_block_id, buffer.data(), ops);
 
   return KNullOk;
 }

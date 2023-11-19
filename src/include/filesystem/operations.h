@@ -129,7 +129,7 @@ public:
    * @param id the id of the inode
    * @return whether the remove is ok
    */
-  auto remove_file(inode_id_t) -> ChfsNullResult;
+  auto remove_file(inode_id_t, std::vector<std::shared_ptr<BlockOperation>> *ops= nullptr) -> ChfsNullResult;
 
   /**
    * Get the free blocks of the filesystem.
@@ -185,7 +185,8 @@ public:
    * @return  If the file doesn't exist, indicate error ENOENT.
    * @return  ENOTEMPTY if the deleted file is a directory
    */
-  auto unlink(inode_id_t parent, const char *name) -> ChfsNullResult;
+  auto unlink(inode_id_t parent, const char *name,
+              std::vector<std::shared_ptr<BlockOperation>> *ops = nullptr) -> ChfsNullResult;
 
 private:
   FileOperation(std::shared_ptr<BlockManager> bm,

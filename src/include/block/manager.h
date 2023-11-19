@@ -85,7 +85,8 @@ public:
    * @param block_id id of the block
    * @param block_data raw block data
    */
-  virtual auto write_block(block_id_t block_id, const u8 *block_data, std::vector<std::shared_ptr<BlockOperation>> *ops = nullptr)
+  virtual auto write_block(block_id_t block_id, const u8 *block_data, std::vector<std::shared_ptr<BlockOperation>> *ops = nullptr,
+                           usize log_num = 0)
       -> ChfsNullResult;
 
   /**
