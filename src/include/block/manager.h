@@ -94,14 +94,14 @@ public:
    */
   virtual auto write_partial_block(block_id_t block_id, const u8 *block_data,
                                    usize offset, usize len,
-                                   std::vector<std::shared_ptr<BlockOperation>> *ops = nullptr) -> ChfsNullResult;
+                                   std::vector<std::shared_ptr<BlockOperation>> *ops = nullptr, usize log_num=0) -> ChfsNullResult;
 
   /**
    * Read a block to the internal block device.
    * @param block_id id of the block
    * @param block_data raw block data buffer to store the result
    */
-  virtual auto read_block(block_id_t block_id, u8 *block_data)
+  virtual auto read_block(block_id_t block_id, u8 *block_data,usize log_num=0)
       -> ChfsNullResult;
 
   /**

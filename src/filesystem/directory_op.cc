@@ -143,11 +143,15 @@ auto FileOperation::mk_helper(inode_id_t id, const char *name, InodeType type, s
   //    If already exist, return ErrorType::AlreadyExist.
   if(lookup(id, name).is_ok())
       return ChfsResult<inode_id_t>(ErrorType::AlreadyExist);
-
+  inode_id_t inode_id = 0;
   // 2. Create the new inode.
   auto alloc_res = alloc_inode(type, ops);
-  if(alloc_res.is_err())
+  if(alloc_res.is_err() && !ops)
       return alloc_res.unwrap_error();
+  if(alloc_res.is_ok())
+      inode_id = alloc_res.unwrap();
+  if(ops && alloc_res.is_err())
+      inode_id = 1;
 
   // 3. Append the new entry to the parent directory.
   auto read_res = read_file(id);
@@ -156,12 +160,14 @@ auto FileOperation::mk_helper(inode_id_t id, const char *name, InodeType type, s
 
   std::vector<u8> content = read_res.unwrap();
   std::string src = std::string(content.begin(), content.end());
-  std::string append_src = append_to_directory(src, name, alloc_res.unwrap());
+  std::string append_src = append_to_directory(src, name, inode_id);
 
   auto write_res = write_file(id, std::vector<u8>(append_src.begin(), append_src.end()), ops);
   if(write_res.is_err())
       return write_res.unwrap_error();
-  return ChfsResult<inode_id_t>(alloc_res.unwrap());
+  if(alloc_res.is_err())
+      return alloc_res.unwrap_error();
+  return ChfsResult<inode_id_t>(inode_id);
 //  return ChfsResult<inode_id_t>(static_cast<inode_id_t>(0));
 }
 

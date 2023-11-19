@@ -35,7 +35,7 @@ auto CommitLog::get_log_entry_num() -> usize {
   // TODO: Implement this function.
     // 1. read bit_map_
     std::vector<u8> bitmap_buf(DiskBlockSize);
-    bm_->read_block(bit_map_, bitmap_buf.data());
+    bm_->read_block(bit_map_, bitmap_buf.data(),1024);
     auto bitmap = Bitmap(bitmap_buf.data(), DiskBlockSize);
     return bitmap.count_ones();
 }
@@ -48,7 +48,7 @@ auto CommitLog::append_log(txn_id_t txn_id,
   // 1. write into log_data_
   // check bit_map_
   std::vector<u8> bitmap_buf(DiskBlockSize);
-  bm_->read_block(bit_map_, bitmap_buf.data());
+  bm_->read_block(bit_map_, bitmap_buf.data(),1024);
   auto bitmap = Bitmap(bitmap_buf.data(), DiskBlockSize);
 
   for( auto iter:ops) {
@@ -68,7 +68,7 @@ auto CommitLog::append_log(txn_id_t txn_id,
       std::memcpy(entry_table_buf.data(), &entry, sizeof(LogEntry));
       bm_->write_partial_block(entry_table_ + log_data_id.value() / entry_per_block_,
                                entry_table_buf.data(),
-                               log_data_id.value() % entry_per_block_, sizeof(LogEntry));
+                               log_data_id.value() % entry_per_block_ * sizeof(LogEntry), sizeof(LogEntry), nullptr,1024);
 
       //write log data
       bm_->write_block(log_data_id.value() + this->log_data_, iter->new_block_state_.data()
@@ -77,6 +77,7 @@ auto CommitLog::append_log(txn_id_t txn_id,
   }
 
   bm_->write_block(bit_map_, bitmap_buf.data(),nullptr, 1024);
+  bm_->sync(bit_map_);
 
 
 }
@@ -87,19 +88,31 @@ auto CommitLog::commit_log(txn_id_t txn_id) -> void {
     std::vector<u8> buffer(sizeof(txn_id_t));
     *(txn_id_t *)(buffer.data()) = txn_id;
     bm_->write_partial_block(commit_table_, buffer.data(),
-                             total_commit_ * sizeof(txn_id_t), sizeof(txn_id_t));
+                             total_commit_ * sizeof(txn_id_t), sizeof(txn_id_t), nullptr,1024);
     total_commit_++;
 
   auto total_entry_num = get_log_entry_num();
   for(auto j = 0; j < entry_num_; ++j) {
+      if(j*entry_per_block_ > total_entry_num)
+          break;
       std::vector<u8> entry_table_buf(DiskBlockSize);
-      bm_->read_block(entry_table_ + j, entry_table_buf.data());
+      std::vector<u8> bitmap_buf(DiskBlockSize);
+      std::vector<u8> zero(DiskBlockSize);
+      bm_->read_block(bit_map_, bitmap_buf.data(),1024);
+      bm_->read_block(entry_table_ + j, entry_table_buf.data(),1024);
+
+      auto bitmap = Bitmap(bitmap_buf.data(), DiskBlockSize);
       auto entry_table = (LogEntry*)entry_table_buf.data();
-      for (int i = 0; i < total_entry_num; i++) {
+      for (int i = 0; i < std::min(total_entry_num - j*entry_per_block_, entry_per_block_); i++) {
           if (entry_table[i].txn_id_ == txn_id) {
               bm_->sync(entry_table[i].block_id_);
+              bitmap.clear(entry_table[i].log_data_id_ - this->log_data_);
+
+              bm_->write_block(this->bit_map_,bitmap_buf.data());
+
           }
       }
+
   }
 
 }
@@ -116,20 +129,29 @@ auto CommitLog::checkpoint() -> void {
 auto CommitLog::recover() -> void {
   // TODO: Implement this function.
   std::vector<u8> commit_buf(DiskBlockSize);
-  bm_->read_block(commit_table_, commit_buf.data());
+  bm_->read_block(commit_table_, commit_buf.data(),1024);
   auto commit_table = (txn_id_t*)commit_buf.data();
   auto total_entry_num = get_log_entry_num();
   for(int i=0; i < total_commit_; ++i) {
         for(auto j = 0; j < entry_num_; ++j) {
+            if(j*entry_per_block_ > total_entry_num)
+                break;
             std::vector<u8> entry_table_buf(DiskBlockSize);
             bm_->read_block(entry_table_ + j, entry_table_buf.data());
             auto entry_table = (LogEntry*)entry_table_buf.data();
-            for (int k = 0; k < std::min(total_entry_num - k*entry_per_block_, entry_per_block_); k++) {
-                if (entry_table[i].txn_id_ == commit_table[i]) {
+            for (int k = 0; k < std::min(total_entry_num - j*entry_per_block_, entry_per_block_); k++) {
+                if (entry_table[k].txn_id_ == commit_table[i]) {
                     std::vector<u8> log_data_buf(DiskBlockSize);
-                    bm_->read_block(entry_table[i].log_data_id_, log_data_buf.data());
-                    bm_->write_block(entry_table[i].block_id_, log_data_buf.data(), nullptr, 1024);
-                    bm_->sync(entry_table[i].block_id_);
+                    bm_->read_block(entry_table[k].log_data_id_, log_data_buf.data());
+                    bm_->write_block(entry_table[k].block_id_, log_data_buf.data(), nullptr, 1024);
+                    bm_->sync(entry_table[k].block_id_);
+
+                    std::vector<u8> bitmap_buf(DiskBlockSize);
+                    bm_->read_block(bit_map_, bitmap_buf.data());
+                    auto bitmap = Bitmap(bitmap_buf.data(), DiskBlockSize);
+                    bitmap.clear(entry_table[k].log_data_id_ - this->log_data_);
+                    bm_->write_block(bit_map_,bitmap_buf.data());
+                    bm_->sync(bit_map_);
                 }
             }
         }

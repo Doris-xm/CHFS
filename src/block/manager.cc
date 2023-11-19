@@ -129,7 +129,7 @@ auto BlockManager::write_block(block_id_t block_id, const u8 *data,std::vector<s
 }
 
 auto BlockManager::write_partial_block(block_id_t block_id, const u8 *data,
-                                       usize offset, usize len, std::vector<std::shared_ptr<BlockOperation>> *ops)
+                                       usize offset, usize len, std::vector<std::shared_ptr<BlockOperation>> *ops,usize log_num)
     -> ChfsNullResult {
     if(ops) {
         std::vector<u8> vec;
@@ -144,7 +144,7 @@ auto BlockManager::write_partial_block(block_id_t block_id, const u8 *data,
   }
 
   // TODO: Implement this function.
-    if (block_id >= this->block_cnt) {
+    if (block_id >= (this->block_cnt + log_num)) {
         return ChfsNullResult(ErrorType::INVALID_ARG);
     }
     memcpy(&this->block_data[block_id * this->block_sz + offset], data, len);
@@ -153,10 +153,10 @@ auto BlockManager::write_partial_block(block_id_t block_id, const u8 *data,
   return KNullOk;
 }
 
-auto BlockManager::read_block(block_id_t block_id, u8 *data) -> ChfsNullResult {
+auto BlockManager::read_block(block_id_t block_id, u8 *data, usize log_num) -> ChfsNullResult {
 
   // TODO: Implement this function.
-    if (block_id >= this->block_cnt) {
+    if (block_id >= (this->block_cnt + log_num)) {
         return ChfsNullResult(ErrorType::INVALID_ARG);
     }
 
@@ -166,7 +166,7 @@ auto BlockManager::read_block(block_id_t block_id, u8 *data) -> ChfsNullResult {
 }
 
 auto BlockManager::zero_block(block_id_t block_id) -> ChfsNullResult {
-  
+
   // TODO: Implement this function.
     if (block_id >= this->block_cnt) {
         return ChfsNullResult(ErrorType::INVALID_ARG);
