@@ -65,7 +65,7 @@ auto DataServer::read_data(block_id_t block_id, usize offset, usize len,
     // check version
     auto versions_per_block = block_allocator_->bm->block_size() / sizeof(version_t);
     block_allocator_->bm->read_block(block_id / versions_per_block, version_buffer.data());
-    if (version_buffer.data()[block_id % versions_per_block] != version) {
+    if (*((version_t *)version_buffer.data() + block_id % versions_per_block) != version) {
         return {};
     }
 
@@ -100,11 +100,13 @@ auto DataServer::alloc_block() -> std::pair<block_id_t, version_t> {
     // update version
     auto versions_per_block = block_allocator_->bm->block_size() / sizeof(version_t);
     block_allocator_->bm->read_block(res.unwrap() / versions_per_block, buffer.data());
-    auto old_version = buffer.data()[res.unwrap() % versions_per_block];
-    buffer.data()[res.unwrap() % versions_per_block * (sizeof(version_t) / sizeof(u8))] += 1;
+    auto old_version = *((version_t *)buffer.data() + res.unwrap() % versions_per_block);
+    version_t new_version = old_version + 1;
+
+    std::memcpy(buffer.data() + res.unwrap() % versions_per_block * (sizeof(version_t) / sizeof(u8)), &new_version, sizeof(version_t));
     block_allocator_->bm->write_block(res.unwrap() / versions_per_block, buffer.data());
 
-    return {res.unwrap(), old_version + 1};
+    return {res.unwrap(), new_version};
 }
 
 // {Your code here}
@@ -119,7 +121,10 @@ auto DataServer::free_block(block_id_t block_id) -> bool {
     std::vector<u8> buffer(block_allocator_->bm->block_size());
     auto versions_per_block = block_allocator_->bm->block_size() / sizeof(version_t);
     block_allocator_->bm->read_block(block_id / versions_per_block, buffer.data());
-    buffer.data()[block_id % versions_per_block * (sizeof(version_t) / sizeof(u8))] += 1;
+    auto old_version = *((version_t *)buffer.data() + block_id % versions_per_block);
+    version_t new_version = old_version + 1;
+
+    std::memcpy(buffer.data() + block_id % versions_per_block * (sizeof(version_t) / sizeof(u8)), &new_version, sizeof(version_t));
     block_allocator_->bm->write_block(block_id / versions_per_block, buffer.data());
 
     return true;
