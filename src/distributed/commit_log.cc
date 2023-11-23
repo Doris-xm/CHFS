@@ -106,9 +106,9 @@ auto CommitLog::commit_log(txn_id_t txn_id) -> void {
       for (int i = 0; i < std::min(total_entry_num - j*entry_per_block_, entry_per_block_); i++) {
           if (entry_table[i].txn_id_ == txn_id) {
               bm_->sync(entry_table[i].block_id_);
-              bitmap.clear(entry_table[i].log_data_id_ - this->log_data_);
+              bitmap.zeroed();
 
-              bm_->write_block(this->bit_map_,bitmap_buf.data());
+              bm_->write_block(this->bit_map_,bitmap_buf.data(), nullptr,1024);
 
           }
       }
@@ -132,6 +132,12 @@ auto CommitLog::recover() -> void {
   bm_->read_block(commit_table_, commit_buf.data(),1024);
   auto commit_table = (txn_id_t*)commit_buf.data();
   auto total_entry_num = get_log_entry_num();
+//    std::vector<u8> bitmap_buf(DiskBlockSize);
+//    bm_->read_block(bit_map_, bitmap_buf.data());
+//    auto bitmap = Bitmap(bitmap_buf.data(), DiskBlockSize);
+//    bitmap.zeroed();
+//    bm_->write_block(bit_map_,bitmap_buf.data());
+//    bm_->sync(bit_map_);
   for(int i=0; i < total_commit_; ++i) {
         for(auto j = 0; j < entry_num_; ++j) {
             if(j*entry_per_block_ > total_entry_num)
@@ -147,7 +153,7 @@ auto CommitLog::recover() -> void {
                     bm_->sync(entry_table[k].block_id_);
 
                     std::vector<u8> bitmap_buf(DiskBlockSize);
-                    bm_->read_block(bit_map_, bitmap_buf.data());
+                    bm_->read_block(bit_map_, bitmap_buf.data(),1024);
                     auto bitmap = Bitmap(bitmap_buf.data(), DiskBlockSize);
                     bitmap.clear(entry_table[k].log_data_id_ - this->log_data_);
                     bm_->write_block(bit_map_,bitmap_buf.data());
