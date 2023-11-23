@@ -67,7 +67,7 @@ auto InodeManager::create_from_block_manager(std::shared_ptr<BlockManager> bm,
 }
 
 // { Your code here }
-auto InodeManager::allocate_inode(InodeType type, block_id_t bid)
+auto InodeManager::allocate_inode(InodeType type, block_id_t bid, std::vector<std::shared_ptr<BlockOperation>> *ops)
     -> ChfsResult<inode_id_t> {
   auto iter_res = BlockIterator::create(this->bm.get(), 1 + n_table_blocks,
                                         1 + n_table_blocks + n_bitmap_blocks);
@@ -100,7 +100,19 @@ auto InodeManager::allocate_inode(InodeType type, block_id_t bid)
       // 3. Return the id of the allocated inode.
       //    You may have to use the `RAW_2_LOGIC` macro
       //    to get the result inode id.
-      UNIMPLEMENTED();
+      Inode inode(type, bm->block_size());
+      u8 buffer[bm->block_size()];
+      inode.flush_to_buffer(buffer);
+      auto write_res = bm->write_block(bid, buffer, ops);
+      if (write_res.is_err()) {
+        return ChfsResult<inode_id_t>(write_res.unwrap_error());
+      }
+
+      block_id_t idx = count * bm->block_size()  * KBitsPerByte + free_idx.value();
+      set_table(idx, bid, ops);
+
+      return RAW_2_LOGIC(idx);
+
     }
   }
 
@@ -108,12 +120,19 @@ auto InodeManager::allocate_inode(InodeType type, block_id_t bid)
 }
 
 // { Your code here }
-auto InodeManager::set_table(inode_id_t idx, block_id_t bid) -> ChfsNullResult {
+auto InodeManager::set_table(inode_id_t idx, block_id_t bid,std::vector<std::shared_ptr<BlockOperation>> *ops) -> ChfsNullResult {
 
   // TODO: Implement this function.
   // Fill `bid` into the inode table entry
   // whose index is `idx`.
-  UNIMPLEMENTED();
+  auto inode_per_block = bm->block_size() / sizeof(block_id_t);
+  auto block_entry_id = idx / inode_per_block + 1;
+  u8 data[bm->block_size()];
+  this->bm->read_block(block_entry_id, data);
+  block_id_t *block_data = (block_id_t *)data;
+  block_data[idx % inode_per_block] = bid;
+
+  this->bm->write_block(block_entry_id, data, ops);
 
   return KNullOk;
 }
@@ -127,7 +146,12 @@ auto InodeManager::get(inode_id_t id) -> ChfsResult<block_id_t> {
   // from the inode table. You may have to use
   // the macro `LOGIC_2_RAW` to get the inode
   // table index.
-  UNIMPLEMENTED();
+  auto inode_per_block = bm->block_size() / sizeof(block_id_t);
+
+  u8 buf[bm->block_size()];
+  this->bm->read_block(LOGIC_2_RAW(id) / inode_per_block + 1, buf);
+  block_id_t *block_data = (block_id_t *)buf;
+  res_block_id = block_data[LOGIC_2_RAW(id) % inode_per_block];
 
   return ChfsResult<block_id_t>(res_block_id);
 }
@@ -147,9 +171,9 @@ auto InodeManager::free_inode_cnt() const -> ChfsResult<u64> {
 
     count += bitmap.count_zeros();
 
-    auto iter_res = iter.next(bm->block_size());
-    if (iter_res.is_err()) {
-      return ChfsResult<u64>(iter_res.unwrap_error());
+    auto iter_result = iter.next(bm->block_size());
+    if (iter_result.is_err()) {
+      return ChfsResult<u64>(iter_result.unwrap_error());
     }
   }
   return ChfsResult<u64>(count);
@@ -211,7 +235,7 @@ auto InodeManager::read_inode(inode_id_t id, std::vector<u8> &buffer)
 }
 
 // {Your code}
-auto InodeManager::free_inode(inode_id_t id) -> ChfsNullResult {
+auto InodeManager::free_inode(inode_id_t id, std::vector<std::shared_ptr<BlockOperation>> *ops) -> ChfsNullResult {
 
   // simple pre-checks
   if (id >= max_inode_supported - 1) {
@@ -223,7 +247,18 @@ auto InodeManager::free_inode(inode_id_t id) -> ChfsNullResult {
   //    You may have to use macro `LOGIC_2_RAW`
   //    to get the index of inode table from `id`.
   // 2. Clear the inode bitmap.
-  UNIMPLEMENTED();
+  auto inode_per_block = bm->block_size() / sizeof(block_id_t);
+
+  u8 buf[bm->block_size()];
+  this->bm->read_block(LOGIC_2_RAW(id) / inode_per_block + 1, buf);
+  for(int i = 0; i < 8; i++)
+    buf[LOGIC_2_RAW(id) % inode_per_block * 8 + i] = 0;
+  this->bm->write_block(LOGIC_2_RAW(id) / inode_per_block + 1, buf, ops);
+
+  this->bm->read_block(this->n_table_blocks + LOGIC_2_RAW(id) / (KBitsPerByte * bm->block_size()) + 1, buf);
+  Bitmap bitmap(buf, this->bm->block_size());
+  bitmap.clear(LOGIC_2_RAW(id) %  (KBitsPerByte * bm->block_size()));
+  this->bm->write_block(this->n_table_blocks + LOGIC_2_RAW(id) / (KBitsPerByte * bm->block_size()) + 1, buf, ops);
 
   return KNullOk;
 }

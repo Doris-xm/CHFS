@@ -5,7 +5,9 @@ CMD bash
 # Install Ubuntu packages.
 # Please add packages in alphabetical order.
 ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get -y update && \
+RUN apt-get clean
+RUN  sed -i s@/archive.ubuntu.com/@/mirrors.aliyun.com/@g /etc/apt/sources.list
+RUN apt-get -y update --fix-missing && \
     apt-get -y install \
       build-essential \
       fuse libfuse-dev \
@@ -18,6 +20,7 @@ RUN apt-get -y update && \
       git \
       g++-12 \
       pkg-config \
+      gdb \
       zlib1g-dev && \
     update-alternatives --install /usr/bin/cc cc /usr/bin/clang-14 100 && \
     update-alternatives --install /usr/bin/c++ c++ /usr/bin/clang++-14 100 && \

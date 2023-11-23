@@ -16,12 +16,13 @@
 #include "common/config.h"
 #include "common/macros.h"
 #include "common/result.h"
+#include <memory>
 
 namespace chfs {
 // TODO
 
+class BlockOperation;
 class BlockIterator;
-
 /**
  * BlockManager implements a block device to read/write block devices
  * Note that the block manager is **not** thread-safe.
@@ -84,21 +85,23 @@ public:
    * @param block_id id of the block
    * @param block_data raw block data
    */
-  virtual auto write_block(block_id_t block_id, const u8 *block_data)
+  virtual auto write_block(block_id_t block_id, const u8 *block_data, std::vector<std::shared_ptr<BlockOperation>> *ops = nullptr,
+                           usize log_num = 0)
       -> ChfsNullResult;
 
   /**
    * Write a partial block to the internal block device.
    */
   virtual auto write_partial_block(block_id_t block_id, const u8 *block_data,
-                                   usize offset, usize len) -> ChfsNullResult;
+                                   usize offset, usize len,
+                                   std::vector<std::shared_ptr<BlockOperation>> *ops = nullptr, usize log_num=0) -> ChfsNullResult;
 
   /**
    * Read a block to the internal block device.
    * @param block_id id of the block
    * @param block_data raw block data buffer to store the result
    */
-  virtual auto read_block(block_id_t block_id, u8 *block_data)
+  virtual auto read_block(block_id_t block_id, u8 *block_data,usize log_num=0)
       -> ChfsNullResult;
 
   /**

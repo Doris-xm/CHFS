@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include "block/manager.h"
+#include "distributed/commit_log.h"
 
 namespace chfs {
 
@@ -81,28 +82,60 @@ BlockManager::BlockManager(const std::string &file, usize block_cnt, bool is_log
   this->write_fail_cnt = 0;
   this->maybe_failed = false;
   // TODO: Implement this function.
-  UNIMPLEMENTED();    
+    this->fd = open(file.c_str(), O_RDWR | O_CREAT, S_IRUSR | S_IWUSR);
+    CHFS_ASSERT(this->fd != -1, "Failed to open the block manager file");
+    auto file_sz = get_file_sz(this->file_name_);
+    if (file_sz == 0) {
+        initialize_file(this->fd, this->total_storage_sz());
+    } else {
+        this->block_cnt = file_sz / this->block_sz;
+    }
+
+    this->block_data =
+            static_cast<u8 *>(mmap(nullptr, this->total_storage_sz(),
+                                   PROT_READ | PROT_WRITE, MAP_SHARED, this->fd, 0));
+    CHFS_ASSERT(this->block_data != MAP_FAILED, "Failed to mmap the data");
+
+    if (is_log_enabled) {
+        this->block_cnt -= 1024;
+    }
 }
 
-auto BlockManager::write_block(block_id_t block_id, const u8 *data)
+auto BlockManager::write_block(block_id_t block_id, const u8 *data,std::vector<std::shared_ptr<BlockOperation>> *ops,
+                               usize log_num)
     -> ChfsNullResult {
+
+    if(ops) {
+        std::vector<u8> vec;
+        vec.assign(data, data + this->block_sz);
+        ops->emplace_back(std::make_shared<BlockOperation>(block_id, vec));
+    }
   if (this->maybe_failed && block_id < this->block_cnt) {
     if (this->write_fail_cnt >= 3) {
       this->write_fail_cnt = 0;
       return ErrorType::INVALID;
     }
   }
-  
+
 
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+  if (block_id >= (this->block_cnt + log_num)) {
+    return ChfsNullResult(ErrorType::INVALID_ARG);
+  }
+  memcpy(&this->block_data[block_id * this->block_sz], data, this->block_sz);
   this->write_fail_cnt++;
+
   return KNullOk;
 }
 
 auto BlockManager::write_partial_block(block_id_t block_id, const u8 *data,
-                                       usize offset, usize len)
+                                       usize offset, usize len, std::vector<std::shared_ptr<BlockOperation>> *ops,usize log_num)
     -> ChfsNullResult {
+    if(ops) {
+        std::vector<u8> vec;
+        vec.assign(data, data + this->block_sz);
+        ops->emplace_back(std::make_shared<BlockOperation>(block_id, vec));
+    }
   if (this->maybe_failed && block_id < this->block_cnt) {
     if (this->write_fail_cnt >= 3) {
       this->write_fail_cnt = 0;
@@ -111,24 +144,34 @@ auto BlockManager::write_partial_block(block_id_t block_id, const u8 *data,
   }
 
   // TODO: Implement this function.
-  UNIMPLEMENTED();
-  this->write_fail_cnt++;
+    if (block_id >= (this->block_cnt + log_num)) {
+        return ChfsNullResult(ErrorType::INVALID_ARG);
+    }
+    memcpy(&this->block_data[block_id * this->block_sz + offset], data, len);
+    this->write_fail_cnt++;
+
   return KNullOk;
 }
 
-auto BlockManager::read_block(block_id_t block_id, u8 *data) -> ChfsNullResult {
+auto BlockManager::read_block(block_id_t block_id, u8 *data, usize log_num) -> ChfsNullResult {
 
   // TODO: Implement this function.
-  UNIMPLEMENTED();
+    if (block_id >= (this->block_cnt + log_num)) {
+        return ChfsNullResult(ErrorType::INVALID_ARG);
+    }
 
-  return KNullOk;
+    memcpy(data, &this->block_data[block_id * this->block_sz], this->block_sz);
+    return KNullOk;
+
 }
 
 auto BlockManager::zero_block(block_id_t block_id) -> ChfsNullResult {
-  
-  // TODO: Implement this function.
-  UNIMPLEMENTED();
 
+  // TODO: Implement this function.
+    if (block_id >= this->block_cnt) {
+        return ChfsNullResult(ErrorType::INVALID_ARG);
+    }
+    memset(&this->block_data[block_id * this->block_sz], 0, this->block_sz);
   return KNullOk;
 }
 
