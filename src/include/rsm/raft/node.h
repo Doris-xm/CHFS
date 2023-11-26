@@ -133,7 +133,7 @@ private:
     std::atomic_bool stopped;
 
     RaftRole role;
-    int current_term;
+    int current_term=0;
     int leader_id;
 
     std::unique_ptr<std::thread> background_election;
@@ -142,6 +142,9 @@ private:
     std::unique_ptr<std::thread> background_apply;
 
     /* Lab3: Your code here */
+    int commit_idx;
+    int count_vote=0;
+    int last_heartbeat=0;
 };
 
 template <typename StateMachine, typename Command>
@@ -213,6 +216,11 @@ template <typename StateMachine, typename Command>
 auto RaftNode<StateMachine, Command>::stop() -> int
 {
     /* Lab3: Your code here */
+    stopped.store(true);
+    background_election->join();
+    background_ping->join();
+    background_commit->join();
+    background_apply->join();
     return 0;
 }
 
@@ -220,6 +228,8 @@ template <typename StateMachine, typename Command>
 auto RaftNode<StateMachine, Command>::is_leader() -> std::tuple<bool, int>
 {
     /* Lab3: Your code here */
+    if(role == RaftRole::Leader)
+        return std::make_tuple(true, current_term);
     return std::make_tuple(false, -1);
 }
 
@@ -261,13 +271,50 @@ template <typename StateMachine, typename Command>
 auto RaftNode<StateMachine, Command>::request_vote(RequestVoteArgs args) -> RequestVoteReply
 {
     /* Lab3: Your code here */
-    return RequestVoteReply();
+    // TODO: maybe need a commit_idx
+    RequestVoteReply reply;
+    // If the request is coming from an old term then reject it.
+    if (args.Term < current_term) {
+        reply.CurrentTerm = current_term;
+        reply.VoteGranted = false;
+        return reply;
+    }
+
+    // If the term of the request peer is larger than this node, update the term
+    // If the term is equal and we've already voted for a different candidate then
+    // don't vote for this candidate.
+    if (args.Term > current_term || leader_id == -1) {
+        current_term = args.Term;
+        leader_id = args.CandidateId;
+        role = RaftRole::Follower;
+        reply.CurrentTerm = current_term;
+        reply.VoteGranted = true;
+    }
+    else if (args.Term == current_term && leader_id == -1) {
+        leader_id = args.CandidateId;
+        role = RaftRole::Follower;
+        reply.CurrentTerm = current_term;
+        reply.VoteGranted = true;
+    }
+    else {
+        reply.CurrentTerm = current_term;
+        reply.VoteGranted = false;
+    }
+
+    return reply;
 }
 
 template <typename StateMachine, typename Command>
 void RaftNode<StateMachine, Command>::handle_request_vote_reply(int target, const RequestVoteArgs arg, const RequestVoteReply reply)
 {
     /* Lab3: Your code here */
+    if (arg.CandidateId == my_id && reply.VoteGranted) {
+        count_vote++;
+        if (count_vote > node_configs.size() / 2) {
+            role = RaftRole::Leader;
+            leader_id = my_id;
+        }
+    }
     return;
 }
 
@@ -275,13 +322,46 @@ template <typename StateMachine, typename Command>
 auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_arg) -> AppendEntriesReply
 {
     /* Lab3: Your code here */
-    return AppendEntriesReply();
+    AppendEntriesReply reply;
+    // If the request is coming from an old term then reject it.
+    if (rpc_arg.Term < current_term) {
+        reply.Term = current_term;
+        reply.Success = false;
+        return reply;
+    }
+    else {
+        current_term = rpc_arg.Term;
+        reply.Term = current_term;
+        reply.Success = true;
+        this->last_heartbeat = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch())
+                .count();
+    }
+    return reply;
 }
 
 template <typename StateMachine, typename Command>
 void RaftNode<StateMachine, Command>::handle_append_entries_reply(int node_id, const AppendEntriesArgs<Command> arg, const AppendEntriesReply reply)
 {
     /* Lab3: Your code here */
+    if(reply.Success) {
+        // lock
+        std::unique_lock<std::mutex> lock(mtx);
+        commit_idx = commit_idx > arg.LeaderCommit ? commit_idx : arg.LeaderCommit;
+        // unlock
+        lock.unlock();
+    }
+    else {
+        // lock
+        std::unique_lock<std::mutex> lock(mtx);
+        if(reply.Term > current_term) {
+            current_term = reply.Term;
+            role = RaftRole::Follower;
+            leader_id = -1;
+        }
+        // unlock
+        lock.unlock();
+    }
     return;
 }
 
@@ -370,14 +450,47 @@ void RaftNode<StateMachine, Command>::run_background_election() {
     // Work for followers and candidates.
 
     /* Uncomment following code when you finish */
-    // while (true) {
-    //     {
-    //         if (is_stopped()) {
-    //             return;
-    //         }
-    //         /* Lab3: Your code here */
-    //     }
-    // }
+     while (true) {
+         {
+             if (is_stopped()) {
+                 return;
+             }
+             /* Lab3: Your code here */
+             if (this->role == RaftRole::Follower && this->leader_id != -1) {
+                 int now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::system_clock::now().time_since_epoch())
+                         .count();
+                 if (now - this->last_heartbeat > 1000) {
+                     // lock
+                     std::unique_lock<std::mutex> lock(mtx);
+                     this->role = RaftRole::Candidate;
+                     this->current_term++;
+                     this->leader_id = -1;
+                     this->count_vote = 1; // vote for myself
+                     //unlock
+                     lock.unlock();
+                     // hold election
+                    for (auto node: this->node_configs) {
+                        RequestVoteArgs arg;
+                        arg.Term = this->current_term;
+                        arg.CandidateId = this->my_id;
+//                        arg.LastLogIndex =
+//                        arg.LastLogTerm =
+
+                        // lock the client
+                        std::unique_lock<std::mutex> clients_lock(clients_mtx);
+                        if(this->role == RaftRole::Candidate && node.node_id != this->my_id) {
+                            this->send_request_vote(node.node_id, arg);
+                        }
+                        // unlock the client
+                        clients_lock.unlock();
+                    }
+                 }
+             }
+             // sleep for 100ms
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+         }
+     }
     return;
 }
 
@@ -426,14 +539,37 @@ void RaftNode<StateMachine, Command>::run_background_ping() {
     // Only work for the leader.
 
     /* Uncomment following code when you finish */
-    // while (true) {
-    //     {
-    //         if (is_stopped()) {
-    //             return;
-    //         }
-    //         /* Lab3: Your code here */
-    //     }
-    // }
+    while (true) {
+        {
+            if (is_stopped()) {
+                return;
+            }
+            /* Lab3: Your code here */
+            if(this->role == RaftRole::Leader) {
+                // lock
+                std::unique_lock<std::mutex> lock(mtx);
+                current_term++;
+                // unlock
+                lock.unlock();
+                for(auto node: this->node_configs) {
+                    AppendEntriesArgs<Command> arg;
+                    arg.Term = this->current_term;
+                    arg.LeaderId = this->my_id;
+//                    arg.PrevLogIndex =
+//                    arg.PrevLogTerm =
+                    // lock the client
+                    std::unique_lock<std::mutex> clients_lock(clients_mtx);
+                    if(this->role == RaftRole::Leader && node.node_id != this->my_id) {
+                        this->send_append_entries(node.node_id, arg);
+                    }
+                    // unlock the client
+                    clients_lock.unlock();
+                }
+            }
+            // sleep for 100ms
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }
 
     return;
 }
