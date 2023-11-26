@@ -24,10 +24,10 @@ const std::string RAFT_RPC_INSTALL_SNAPSHOT = "install snapshot";
  */
 struct RequestVoteArgs {
     /* Lab3: Your code here */
-    unsigned long Term;
-    unsigned long CandidateId;
-    unsigned long LastLogIndex;
-    unsigned long LastLogTerm;
+    unsigned int Term;
+    unsigned int CandidateId;
+    unsigned int LastLogIndex;
+    unsigned int LastLogTerm;
     MSGPACK_DEFINE(
         Term,
         CandidateId,
@@ -43,7 +43,7 @@ struct RequestVoteArgs {
  * */
 struct RequestVoteReply {
     /* Lab3: Your code here */
-    unsigned long CurrentTerm;
+    unsigned int CurrentTerm;
     bool VoteGranted;
 
     MSGPACK_DEFINE(
@@ -66,22 +66,22 @@ template <typename Command>
 struct AppendEntriesArgs {
     /* Lab3: Your code here */
 
-    unsigned long Term;
-    unsigned long LeaderId;
-    unsigned long PrevLogIndex;
-    unsigned long PrevLogTerm;
+    unsigned int Term;
+    unsigned int LeaderId;
+    unsigned int PrevLogIndex;
+    unsigned int PrevLogTerm;
 //    std::vector<RaftLog<Command>> Entries;
-    unsigned long LeaderCommit;
+    unsigned int LeaderCommit;
 };
 
 struct RpcAppendEntriesArgs {
     /* Lab3: Your code here */
-    unsigned long Term;
-    unsigned long LeaderId;
-    unsigned long PrevLogIndex;
-    unsigned long PrevLogTerm;
+    unsigned int Term;
+    unsigned int LeaderId;
+    unsigned int PrevLogIndex;
+    unsigned int PrevLogTerm;
 //    std::vector<std::string> Entries;
-    unsigned long LeaderCommit;
+    unsigned int LeaderCommit;
     MSGPACK_DEFINE(
             Term,
             LeaderId,
@@ -129,7 +129,7 @@ AppendEntriesArgs<Command> transform_rpc_append_entries_args(const RpcAppendEntr
 
 struct AppendEntriesReply {
     /* Lab3: Your code here */
-    unsigned long Term;
+    unsigned int Term;
     bool Success;
 
     MSGPACK_DEFINE(
