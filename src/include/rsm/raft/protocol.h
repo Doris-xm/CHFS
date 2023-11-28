@@ -3,6 +3,7 @@
 #include "rsm/raft/log.h"
 #include "rpc/msgpack.hpp"
 
+class sbuffer;
 namespace chfs {
 
 const std::string RAFT_RPC_START_NODE = "start node";
@@ -24,10 +25,10 @@ const std::string RAFT_RPC_INSTALL_SNAPSHOT = "install snapshot";
  */
 struct RequestVoteArgs {
     /* Lab3: Your code here */
-    unsigned int Term;
-    unsigned int CandidateId;
-    unsigned int LastLogIndex;
-    unsigned int LastLogTerm;
+    int Term;
+    int CandidateId;
+    int LastLogIndex;
+    int LastLogTerm;
     MSGPACK_DEFINE(
         Term,
         CandidateId,
@@ -43,7 +44,7 @@ struct RequestVoteArgs {
  * */
 struct RequestVoteReply {
     /* Lab3: Your code here */
-    unsigned int CurrentTerm;
+    int CurrentTerm;
     bool VoteGranted;
 
     MSGPACK_DEFINE(
@@ -66,28 +67,28 @@ template <typename Command>
 struct AppendEntriesArgs {
     /* Lab3: Your code here */
 
-    unsigned int Term;
-    unsigned int LeaderId;
-    unsigned int PrevLogIndex;
-    unsigned int PrevLogTerm;
-//    std::vector<RaftLog<Command>> Entries;
-    unsigned int LeaderCommit;
+    int Term;
+    int LeaderId;
+    int PrevLogIndex;
+    int PrevLogTerm;
+    std::vector<LogEntry<Command>> Entries;
+    int LeaderCommit;
 };
 
 struct RpcAppendEntriesArgs {
     /* Lab3: Your code here */
-    unsigned int Term;
-    unsigned int LeaderId;
-    unsigned int PrevLogIndex;
-    unsigned int PrevLogTerm;
-//    std::vector<std::string> Entries;
-    unsigned int LeaderCommit;
+    int Term;
+    int LeaderId;
+    int PrevLogIndex;
+    int PrevLogTerm;
+    std::vector<u8> Entries;
+    int LeaderCommit;
     MSGPACK_DEFINE(
             Term,
             LeaderId,
             PrevLogIndex,
             PrevLogTerm,
-//            Entries,
+            Entries,
             LeaderCommit
     )
 };
@@ -103,13 +104,14 @@ RpcAppendEntriesArgs transform_append_entries_args(const AppendEntriesArgs<Comma
     rpcArgs.PrevLogTerm = arg.PrevLogTerm;
 
     // Serialize log entries
-//    for (const auto &entry : arg.entries) {
-//        std::string serializedEntry;
-//        // Serialize entry and add to rpcArgs.entries
-//        rpcArgs.Entries.push_back(serializedEntry);
-//    }
-    rpcArgs.LeaderCommit = arg.LeaderCommit;
+    RPCLIB_MSGPACK::sbuffer buffer;
+    RPCLIB_MSGPACK::packer<RPCLIB_MSGPACK::sbuffer> pk(&buffer);
+    pk.pack(arg.Entries);
 
+    // Convert the packed data into a vector<u8>
+    rpcArgs.Entries.assign(buffer.data(), buffer.data() + buffer.size());
+
+    rpcArgs.LeaderCommit = arg.LeaderCommit;
     return rpcArgs;
 }
 
@@ -118,23 +120,38 @@ AppendEntriesArgs<Command> transform_rpc_append_entries_args(const RpcAppendEntr
 {
     /* Lab3: Your code here */
     AppendEntriesArgs<Command> args;
-    args.term = rpc_arg.Term;
-    args.leaderId = rpc_arg.LeaderId;
-    args.prevLogIndex = rpc_arg.PrevLogIndex;
-    args.prevLogTerm = rpc_arg.PrevLogTerm;
+    args.Term = rpc_arg.Term;
+    args.LeaderId = rpc_arg.LeaderId;
+    args.PrevLogIndex = rpc_arg.PrevLogIndex;
+    args.PrevLogTerm = rpc_arg.PrevLogTerm;
 
+    // Deserialize log entries
+    // Get the binary data of Entries from RpcAppendEntriesArgs
+    std::vector<u8> entries_data = rpc_arg.Entries;
+
+    // Unpack the binary data into a msgpack object
+    RPCLIB_MSGPACK::object_handle oh = RPCLIB_MSGPACK::unpack(reinterpret_cast<const char*>(entries_data.data()), entries_data.size());
+    RPCLIB_MSGPACK::object obj = oh.get();
+
+    std::vector<LogEntry<Command>> entries;
+    obj.convert(entries);  // Convert the msgpack object to a vector of LogEntry<Command>
+
+    // Assign the unpacked entries to the AppendEntriesArgs structure
+    args.Entries = entries;
     args.LeaderCommit = rpc_arg.LeaderCommit;
     return args;
 }
 
 struct AppendEntriesReply {
     /* Lab3: Your code here */
-    unsigned int Term;
+    int Term;
     bool Success;
+    int SavedLogIndex;
 
     MSGPACK_DEFINE(
         Term,
-        Success
+        Success,
+        SavedLogIndex
     
     )
 };

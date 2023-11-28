@@ -145,6 +145,7 @@ private:
     int commit_idx;
     int count_vote=0;
     int last_heartbeat=0;
+    std::map<int, int> follower_save_log_idx;
 };
 
 template <typename StateMachine, typename Command>
@@ -212,6 +213,11 @@ auto RaftNode<StateMachine, Command>::start() -> int
             rpc_clients_map[node.node_id] = std::make_unique<RpcClient>(node.ip_address, node.port,true);
         }
     }
+    state = std::make_unique<StateMachine>();
+    log_storage = std::make_unique<RaftLog<Command>>();
+    for(int i = 0; i < node_configs.size(); i++) {
+        follower_save_log_idx.insert(std::make_pair(i, 0));
+    }
     thread_pool = std::make_unique<ThreadPool>(4);
     this->last_heartbeat = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch())
@@ -255,7 +261,51 @@ template <typename StateMachine, typename Command>
 auto RaftNode<StateMachine, Command>::new_command(std::vector<u8> cmd_data, int cmd_size) -> std::tuple<bool, int, int>
 {
     /* Lab3: Your code here */
-    return std::make_tuple(false, -1, -1);
+    /* If AppendEntries RPC received from new leader: convert to follower */
+    if(role == RaftRole::Follower) {
+        if(leader_id == -1)
+            return std::make_tuple(false, current_term, -1);
+
+        auto res = rpc_clients_map[leader_id]->call(RAFT_RPC_NEW_COMMEND, cmd_data, cmd_size);
+        return res.unwrap()->as<std::tuple<bool, int, int>>();
+    }
+
+    Command cmd;
+    cmd.deserialize(cmd_data, cmd_size);
+
+    std::vector<LogEntry<Command>> entries;
+    entries.push_back(LogEntry<Command>(current_term, cmd));
+
+    // lock
+    std::unique_lock<std::mutex> lock(mtx);
+
+    // send to all followers
+    AppendEntriesArgs<Command> arg;
+    arg.Term = current_term;
+    arg.LeaderId = my_id;
+    arg.LeaderCommit = commit_idx;
+    arg.PrevLogIndex = log_storage->get_prev_log_index();
+    arg.PrevLogTerm = log_storage->get_prev_log_term();
+    // append log to log_storage
+    log_storage->append_log_entry(entries);
+    log_storage->get_log_entries(arg.Entries);
+
+    // unlock
+    lock.unlock();
+
+    // send to all followers
+    for (auto node : node_configs) {
+        if (node.node_id != my_id) {
+            send_append_entries(node.node_id, arg);
+        }
+    }
+
+    // apply log to state machine
+    for(int i = state->store.size() - 1; i <= commit_idx; i++) {
+        Command cmd_ = log_storage->get_log_entry(i).command;
+        state->apply_log(cmd_);
+    }
+    return std::make_tuple(true, current_term, arg.PrevLogIndex + 1);
 }
 
 template <typename StateMachine, typename Command>
@@ -344,21 +394,55 @@ auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_ar
 {
     /* Lab3: Your code here */
     AppendEntriesReply reply;
+    AppendEntriesArgs<Command> arg = transform_rpc_append_entries_args<Command>(rpc_arg);
     // If the request is coming from an old term then reject it.
-    if (rpc_arg.Term < current_term) {
+    if (arg.Term < current_term) {
         reply.Term = current_term;
         reply.Success = false;
         return reply;
     }
-    else {
-        current_term = rpc_arg.Term;
-        leader_id = rpc_arg.LeaderId;
+    //update commit
+    if (arg.LeaderCommit > commit_idx) {
+        commit_idx = std::min(arg.LeaderCommit, log_storage->get_prev_log_index());
+        for (int i = state->store.size() - 1; i <= commit_idx; i++) {
+            Command cmd_ = log_storage->get_log_entry(i).command;
+            state->apply_log(cmd_);
+        }
+    }
+
+    // heartbeat
+    if(arg.Entries.size() == 0) {
         reply.Term = current_term;
         reply.Success = true;
         this->last_heartbeat = std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::system_clock::now().time_since_epoch())
                 .count();
+        return reply;
     }
+
+    // check prev log
+    if (arg.PrevLogIndex > log_storage->get_prev_log_index()) {
+        reply.Term = current_term;
+        reply.Success = false;
+        return reply;
+    }
+
+    // check prev log term
+    if (arg.PrevLogTerm != log_storage->get_prev_log_term()) {
+        log_storage->delete_entries(arg.PrevLogIndex);
+        reply.Term = current_term;
+        reply.Success = false;
+        return reply;
+    }
+
+    current_term = arg.Term;
+    leader_id = arg.LeaderId;
+    reply.Term = current_term;
+    reply.Success = true;
+
+    log_storage->append_log_entry(arg.Entries);
+    reply.SavedLogIndex = log_storage->get_prev_log_index();
+
     return reply;
 }
 
@@ -366,24 +450,48 @@ template <typename StateMachine, typename Command>
 void RaftNode<StateMachine, Command>::handle_append_entries_reply(int node_id, const AppendEntriesArgs<Command> arg, const AppendEntriesReply reply)
 {
     /* Lab3: Your code here */
-    if(reply.Success) {
+    if (role != RaftRole::Leader)
+        return;
+    if(!reply.Success) {
         // lock
         std::unique_lock<std::mutex> lock(mtx);
-        commit_idx = commit_idx > arg.LeaderCommit ? commit_idx : arg.LeaderCommit;
-        // unlock
-        lock.unlock();
-    }
-    else {
-        // lock
-        std::unique_lock<std::mutex> lock(mtx);
-        if(reply.Term > current_term) {
+        if(reply.Term > current_term) { // if the term is larger, then change to follower
             current_term = reply.Term;
             role = RaftRole::Follower;
             leader_id = -1;
+            return;
         }
+        /* missing entries or deleted for conflicts */
+        AppendEntriesArgs<Command> arg_var = arg;
+        arg_var.PrevLogIndex--;
+        arg_var.PrevLogTerm = log_storage->get_log_term(arg_var.PrevLogIndex);
+        // unlock
+        lock.unlock();
+        send_append_entries(node_id, arg_var);
+        return;
+    }
+    if(reply.Success) {
+        // lock
+        std::unique_lock<std::mutex> lock(mtx);
+        follower_save_log_idx[node_id] = reply.SavedLogIndex;
+        follower_save_log_idx[my_id] = log_storage->get_prev_log_index();
+        // A log entry is committed once the leader that created the entry has replicated it on a majority of the servers
+        for(int i = follower_save_log_idx[my_id]; i > commit_idx; i--) {
+            int cnt = 0;
+            for(auto follower : follower_save_log_idx)
+                if(follower.second >= i)
+                    cnt++;
+
+            if(cnt > node_configs.size() / 2) {
+                commit_idx = i;
+                break;
+            }
+        }
+
         // unlock
         lock.unlock();
     }
+
     return;
 }
 
@@ -528,14 +636,32 @@ void RaftNode<StateMachine, Command>::run_background_commit() {
     // Only work for the leader.
 
     /* Uncomment following code when you finish */
-    // while (true) {
-    //     {
-    //         if (is_stopped()) {
-    //             return;
-    //         }
-    //         /* Lab3: Your code here */
-    //     }
-    // }
+     while (true) {
+         {
+             if (is_stopped()) {
+                 return;
+             }
+             /* Lab3: Your code here */
+             if (this->role == RaftRole::Leader) {
+                 // lock
+                 std::unique_lock<std::mutex> lock(mtx);
+                 for (auto node: this->node_configs) {
+                     AppendEntriesArgs<Command> arg;
+                     arg.Term = this->current_term;
+                     arg.LeaderId = this->my_id;
+                     arg.PrevLogIndex = state->store.back();
+                     arg.PrevLogTerm = state->store.back();
+                    if(this->role == RaftRole::Leader && node.node_id != this->my_id) {
+                        this->send_append_entries(node.node_id, arg);
+                    }
+                    }
+                    // unlock
+                    lock.unlock();
+                }
+                // sleep for 100ms
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+         }
+     }
 
     return;
 }
@@ -577,15 +703,10 @@ void RaftNode<StateMachine, Command>::run_background_ping() {
                     AppendEntriesArgs<Command> arg;
                     arg.Term = this->current_term;
                     arg.LeaderId = this->my_id;
-//                    arg.PrevLogIndex =
-//                    arg.PrevLogTerm =
-                    // lock the client
-//                    std::unique_lock<std::mutex> clients_lock(clients_mtx);
+                    arg.Entries.clear();
                     if(this->role == RaftRole::Leader && node.node_id != this->my_id) {
                         this->send_append_entries(node.node_id, arg);
                     }
-                    // unlock the client
-//                    clients_lock.unlock();
                 }
             }
             // sleep for 100ms
