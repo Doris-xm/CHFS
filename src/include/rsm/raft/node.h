@@ -176,7 +176,19 @@ RaftNode<StateMachine, Command>::RaftNode(int node_id, std::vector<RaftNodeConfi
     rpc_server->bind(RAFT_RPC_APPEND_ENTRY, [this](RpcAppendEntriesArgs arg) { return this->append_entries(arg); });
     rpc_server->bind(RAFT_RPC_INSTALL_SNAPSHOT, [this](InstallSnapshotArgs arg) { return this->install_snapshot(arg); });
 
-   /* Lab3: Your code here */ 
+   /* Lab3: Your code here */
+    rpc_clients_map.clear();
+    for (auto node : node_configs) {
+        if (node.node_id != my_id) {
+            rpc_clients_map[node.node_id] = std::make_unique<RpcClient>(node.ip_address, node.port,true);
+        }
+    }
+    state = std::make_unique<StateMachine>();
+    log_storage = std::make_unique<RaftLog<Command>>();
+    for(int i = 0; i < node_configs.size(); i++) {
+        follower_save_log_idx.insert(std::make_pair(i, 0));
+    }
+    thread_pool = std::make_unique<ThreadPool>(4);
 
 
     rpc_server->run(true, configs.size()); 
@@ -207,18 +219,7 @@ auto RaftNode<StateMachine, Command>::start() -> int
     stopped.store(false);
     std::srand(std::time(nullptr));
     // FIXME: maybe need set_network
-    rpc_clients_map.clear();
-    for (auto node : node_configs) {
-        if (node.node_id != my_id) {
-            rpc_clients_map[node.node_id] = std::make_unique<RpcClient>(node.ip_address, node.port,true);
-        }
-    }
-    state = std::make_unique<StateMachine>();
-    log_storage = std::make_unique<RaftLog<Command>>();
-    for(int i = 0; i < node_configs.size(); i++) {
-        follower_save_log_idx.insert(std::make_pair(i, 0));
-    }
-    thread_pool = std::make_unique<ThreadPool>(4);
+
     this->last_heartbeat = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch())
             .count();
@@ -279,33 +280,34 @@ auto RaftNode<StateMachine, Command>::new_command(std::vector<u8> cmd_data, int 
     // lock
     std::unique_lock<std::mutex> lock(mtx);
 
-    // send to all followers
-    AppendEntriesArgs<Command> arg;
-    arg.Term = current_term;
-    arg.LeaderId = my_id;
-    arg.LeaderCommit = commit_idx;
-    arg.PrevLogIndex = log_storage->get_prev_log_index();
-    arg.PrevLogTerm = log_storage->get_prev_log_term();
+//    // send to all followers
+//    AppendEntriesArgs<Command> arg;
+//    arg.Term = current_term;
+//    arg.LeaderId = my_id;
+//    arg.LeaderCommit = commit_idx;
+//    arg.PrevLogIndex = log_storage->get_prev_log_index();
+//    arg.PrevLogTerm = log_storage->get_prev_log_term();
     // append log to log_storage
     log_storage->append_log_entry(entries);
-    log_storage->get_log_entries(arg.Entries);
+    int temp_idx = log_storage->get_prev_log_index();
+//    log_storage->get_log_entries(arg.Entries);
 
     // unlock
     lock.unlock();
 
-    // send to all followers
-    for (auto node : node_configs) {
-        if (node.node_id != my_id) {
-            send_append_entries(node.node_id, arg);
-        }
-    }
+//    // send to all followers
+//    for (auto node : node_configs) {
+//        if (node.node_id != my_id) {
+//            send_append_entries(node.node_id, arg);
+//        }
+//    }
 
-    // apply log to state machine
-    for(int i = state->store.size() - 1; i <= commit_idx; i++) {
-        Command cmd_ = log_storage->get_log_entry(i).command;
-        state->apply_log(cmd_);
-    }
-    return std::make_tuple(true, current_term, arg.PrevLogIndex + 1);
+//    // apply log to state machine
+//    for(int i = state->store.size() - 1; i <= commit_idx; i++) {
+//        Command cmd_ = log_storage->get_log_entry(i).command;
+//        state->apply_log(cmd_);
+//    }
+    return std::make_tuple(true, current_term, temp_idx);
 }
 
 template <typename StateMachine, typename Command>
@@ -404,10 +406,10 @@ auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_ar
     //update commit
     if (arg.LeaderCommit > commit_idx) {
         commit_idx = std::min(arg.LeaderCommit, log_storage->get_prev_log_index());
-        for (int i = state->store.size() - 1; i <= commit_idx; i++) {
-            Command cmd_ = log_storage->get_log_entry(i).command;
-            state->apply_log(cmd_);
-        }
+//        for (int i = state->store.size() - 1; i <= commit_idx; i++) {
+//            Command cmd_ = log_storage->get_log_entry(i).command;
+//            state->apply_log(cmd_);
+//        }
     }
 
     // heartbeat
@@ -642,24 +644,29 @@ void RaftNode<StateMachine, Command>::run_background_commit() {
                  return;
              }
              /* Lab3: Your code here */
-             if (this->role == RaftRole::Leader) {
-                 // lock
-                 std::unique_lock<std::mutex> lock(mtx);
-                 for (auto node: this->node_configs) {
-                     AppendEntriesArgs<Command> arg;
-                     arg.Term = this->current_term;
-                     arg.LeaderId = this->my_id;
-                     arg.PrevLogIndex = state->store.back();
-                     arg.PrevLogTerm = state->store.back();
-                    if(this->role == RaftRole::Leader && node.node_id != this->my_id) {
-                        this->send_append_entries(node.node_id, arg);
-                    }
-                    }
-                    // unlock
-                    lock.unlock();
-                }
-                // sleep for 100ms
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+             //lock
+             std::unique_lock<std::mutex> lock(mtx);
+             // send to all followers
+             AppendEntriesArgs<Command> arg;
+             arg.Term = current_term;
+             arg.LeaderId = my_id;
+             arg.LeaderCommit = commit_idx;
+             arg.PrevLogIndex = log_storage->get_prev_log_index();
+             arg.PrevLogTerm = log_storage->get_prev_log_term();
+             log_storage->get_log_entries(arg.Entries);
+
+             // unlock
+             lock.unlock();
+
+             // send to all followers
+             for (auto node : node_configs) {
+                 if (node.node_id != my_id) {
+                     send_append_entries(node.node_id, arg);
+                 }
+             }
+
+            // sleep for 100ms
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
          }
      }
 
@@ -673,14 +680,21 @@ void RaftNode<StateMachine, Command>::run_background_apply() {
     // Work for all the nodes.
 
     /* Uncomment following code when you finish */
-    // while (true) {
-    //     {
-    //         if (is_stopped()) {
-    //             return;
-    //         }
-    //         /* Lab3: Your code here */
-    //     }
-    // }
+     while (true) {
+         {
+             if (is_stopped()) {
+                 return;
+             }
+             /* Lab3: Your code here */
+             // apply log to state machine
+             for(int i = state->store.size() - 1; i <= commit_idx; i++) {
+                 Command cmd_ = log_storage->get_log_entry(i).command;
+                 state->apply_log(cmd_);
+             }
+            // sleep for 100ms
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+         }
+     }
 
     return;
 }
