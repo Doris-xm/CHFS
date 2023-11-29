@@ -267,15 +267,15 @@ auto RaftNode<StateMachine, Command>::new_command(std::vector<u8> cmd_data, int 
         if(leader_id == -1)
             return std::make_tuple(false, current_term, -1);
 
-        auto res = rpc_clients_map[leader_id]->call(RAFT_RPC_NEW_COMMEND, cmd_data, cmd_size);
-        return res.unwrap()->as<std::tuple<bool, int, int>>();
+//        auto res = rpc_clients_map[leader_id]->call(RAFT_RPC_NEW_COMMEND, cmd_data, cmd_size);
+//        return res.unwrap()->as<std::tuple<bool, int, int>>();
+        return std::make_tuple(false, current_term, -1);
+
     }
 
-    Command cmd;
+    Command cmd(0);
     cmd.deserialize(cmd_data, cmd_size);
 
-    std::vector<LogEntry<Command>> entries;
-    entries.push_back(LogEntry<Command>(current_term, cmd));
 
     // lock
     std::unique_lock<std::mutex> lock(mtx);
@@ -288,7 +288,7 @@ auto RaftNode<StateMachine, Command>::new_command(std::vector<u8> cmd_data, int 
 //    arg.PrevLogIndex = log_storage->get_prev_log_index();
 //    arg.PrevLogTerm = log_storage->get_prev_log_term();
     // append log to log_storage
-    log_storage->append_log_entry(entries);
+    log_storage->append_log_entry(LogEntry<Command>(current_term, cmd));
     int temp_idx = log_storage->get_prev_log_index();
 //    log_storage->get_log_entries(arg.Entries);
 
@@ -442,7 +442,10 @@ auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_ar
     reply.Term = current_term;
     reply.Success = true;
 
-    log_storage->append_log_entry(arg.Entries);
+    //apply current and following logs
+    for(int i = arg.PrevLogIndex + 1; i < arg.Entries.size(); i++) {
+        log_storage->append_log_entry(arg.Entries[i]);
+    }
     reply.SavedLogIndex = log_storage->get_prev_log_index();
 
     return reply;

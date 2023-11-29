@@ -34,7 +34,7 @@ public:
     int get_prev_log_term();
     int get_prev_log_index();
     int get_log_term(int index);
-    void append_log_entry(std::vector<LogEntry<Command>> entries);
+    void append_log_entry(LogEntry<Command> entry);
     void delete_entries(int index); // delete entries include and after index
     void get_log_entries(std::vector<LogEntry<Command>> &entries);
     LogEntry<Command> get_log_entry(int index);
@@ -74,9 +74,8 @@ private:
     }
 
     template<typename Command>
-    void RaftLog<Command>::append_log_entry(std::vector<LogEntry<Command>> entries) {
-        for (auto logEntry : entries)
-            log_entries_.push_back(logEntry);
+    void RaftLog<Command>::append_log_entry(LogEntry<Command> entry) {
+        log_entries_.push_back(entry);
     }
 
     template<typename Command>
