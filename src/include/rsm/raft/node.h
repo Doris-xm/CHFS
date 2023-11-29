@@ -357,28 +357,31 @@ auto RaftNode<StateMachine, Command>::request_vote(RequestVoteArgs args) -> Requ
     // If the term is equal and we've already voted for a different candidate then
     // don't vote for this candidate.
     if (args.Term > current_term || leader_id == -1) {
-        current_term = args.Term;
-        leader_id = args.CandidateId;
-        role = RaftRole::Follower;
-        reply.CurrentTerm = current_term;
-        this->last_heartbeat = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch())
-                .count();
-        reply.VoteGranted = true;
+        // compare log
+        if(args.LastLogTerm > log_storage->get_prev_log_term() || (args.LastLogTerm == log_storage->get_prev_log_term() && args.LastLogIndex >= log_storage->get_prev_log_index())) {
+            leader_id = args.CandidateId;
+            this->role = RaftRole::Follower;
+            RAFT_LOG("node %d with term :  %d ,vote for %d with term : %d", my_id, current_term, args.CandidateId, args.Term);
+            current_term = args.Term;
+            reply.CurrentTerm = current_term;
+            reply.VoteGranted = true;
+            this->last_heartbeat = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch())
+                    .count();
+            return reply;
+        }
+        else {
+            current_term = args.Term;
+            leader_id = -1;
+            reply.CurrentTerm = current_term;
+            reply.VoteGranted = false;
+            return reply;
+        }
     }
-    else if (args.Term == current_term && leader_id == -1) {
-        leader_id = args.CandidateId;
-        role = RaftRole::Follower;
-        reply.CurrentTerm = current_term;
-        this->last_heartbeat = std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch())
-                .count();
-        reply.VoteGranted = true;
-    }
-    else {
-        reply.CurrentTerm = current_term;
-        reply.VoteGranted = false;
-    }
+    // has voted for others with same terms
+    reply.CurrentTerm = current_term;
+    reply.VoteGranted = false;
+
 
     return reply;
 }
@@ -404,6 +407,7 @@ void RaftNode<StateMachine, Command>::handle_request_vote_reply(int target, cons
     else if(reply.CurrentTerm > current_term) {
         current_term = reply.CurrentTerm;
         role = RaftRole::Follower;
+        count_vote = 0;
         leader_id = -1;
     }
     return;
@@ -502,16 +506,16 @@ void RaftNode<StateMachine, Command>::handle_append_entries_reply(int node_id, c
         follower_save_log_idx[node_id] = reply.SavedLogIndex;
         follower_save_log_idx[my_id] = log_storage->get_prev_log_index();
         // A log entry is committed once the leader that created the entry has replicated it on a majority of the servers
-        for(int i = follower_save_log_idx[my_id]; i > commit_idx; i--) {
+        int i = commit_idx + 1;
+        for(; i <= follower_save_log_idx[my_id]; i++) {
             int cnt = 0;
             for(auto follower : follower_save_log_idx)
                 if(follower.second >= i)
                     cnt++;
 
-            if(cnt > node_configs.size() / 2) {
+            if(cnt > node_configs.size() / 2)
                 commit_idx = i;
-                break;
-            }
+
         }
 
         // unlock
@@ -617,7 +621,7 @@ void RaftNode<StateMachine, Command>::run_background_election() {
                  int now_ = std::chrono::duration_cast<std::chrono::milliseconds>(
                          std::chrono::system_clock::now().time_since_epoch())
                          .count();
-                 if (now_ - this->last_heartbeat > ((rand()+139*my_id)%200 + 200)) { // election timeout
+                 if (now_ - this->last_heartbeat > ((rand()+139*my_id)%150 + 150)) { // election timeout
                      // lock
 
 //                     RAFT_LOG("election time out with: %d", now_ - this->last_heartbeat);
@@ -693,7 +697,7 @@ void RaftNode<StateMachine, Command>::run_background_commit() {
              }
 
             // sleep for 100ms
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
          }
      }
 
@@ -726,7 +730,7 @@ void RaftNode<StateMachine, Command>::run_background_apply() {
             // unlock
             lock.unlock();
             // sleep for 100ms
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
          }
      }
 
@@ -758,7 +762,7 @@ void RaftNode<StateMachine, Command>::run_background_ping() {
                 }
             }
             // sleep for 100ms
-            std::this_thread::sleep_for(std::chrono::milliseconds(30));
+            std::this_thread::sleep_for(std::chrono::milliseconds(20));
         }
     }
 

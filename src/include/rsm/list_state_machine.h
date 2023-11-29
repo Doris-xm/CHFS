@@ -38,6 +38,7 @@ public:
     }
 
     int value;
+    MSGPACK_DEFINE(value)
 };
 
 class ListStateMachine: public ChfsStateMachine {
@@ -89,7 +90,7 @@ public:
     }
 
     std::mutex mtx;
-    std::vector<int> store;
+    std::vector<int> store; // store the command value
     int num_append_logs;
 };
 

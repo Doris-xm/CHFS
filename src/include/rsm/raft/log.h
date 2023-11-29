@@ -55,6 +55,8 @@ private:
 
     template<typename Command>
     LogEntry<Command> RaftLog<Command>::get_log_entry(int index) {
+        if(index >= log_entries_.size())
+            return LogEntry<Command>(0, Command(0));
         return log_entries_[index];
     }
 
@@ -65,11 +67,15 @@ private:
 
     template<typename Command>
     int RaftLog<Command>::get_log_term(int index) {
+        if(index >= log_entries_.size())
+            return 0;
         return log_entries_[index].term;
     }
 
     template<typename Command>
     void RaftLog<Command>::delete_entries(int index){
+        if (index >= log_entries_.size())
+            return;
         log_entries_.erase(log_entries_.begin() + index, log_entries_.end());
     }
 
@@ -80,6 +86,8 @@ private:
 
     template<typename Command>
     int RaftLog<Command>::get_prev_log_term() {
+        if(log_entries_.size() == 0)
+            return 0;
         return log_entries_.back().term;
     }
 
