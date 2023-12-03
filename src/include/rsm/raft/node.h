@@ -190,8 +190,9 @@ RaftNode<StateMachine, Command>::RaftNode(int node_id, std::vector<RaftNodeConfi
 //        }
 //    }
     state = std::make_unique<StateMachine>();
-    log_storage = std::make_unique<RaftLog<Command>>();
-    commit_idx = 0;
+    log_storage = std::make_unique<RaftLog<Command>>(my_id);
+    log_storage->restore_log_entries(my_id, commit_idx, current_term, leader_id);
+//    commit_idx = 0;
     for(int i = 0; i < node_configs.size(); i++) {
         follower_save_log_idx.insert(std::make_pair(i, 0));
         vote_record.insert(std::make_pair(i, -1));

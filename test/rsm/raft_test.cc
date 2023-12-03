@@ -73,6 +73,7 @@ TEST_F(RaftTestPart2, BasicAgree)
     ASSERT_EQ(num_committed, 0) << "The log " << i << "should not be committed!";
 
     int log_idx = AppendNewCommand(i * 100, node_num);
+    std::cout << i << " " << log_idx << std::endl;
     ASSERT_EQ(log_idx, i) << "got index " << log_idx << ", but expect " << i;
   }
 }
