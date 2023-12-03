@@ -3,6 +3,7 @@
 #include "common/macros.h"
 #include "block/manager.h"
 #include "rpc/msgpack/adaptor/define.hpp"
+#include "rpc/msgpack/sbuffer.hpp"
 #include <mutex>
 #include <vector>
 #include <cstring>
@@ -38,18 +39,43 @@ public:
     void delete_entries(int index); // delete entries include and after index
     void get_log_entries(std::vector<LogEntry<Command>> &entries);
     LogEntry<Command> get_log_entry(int index);
+    void persist_log_entries(int node_id, int commit_idx, int term, int leader);
 
 private:
     std::shared_ptr<BlockManager> bm_;
     std::mutex mtx;
     /* Lab3: Your code here */
     std::vector<LogEntry<Command>> log_entries_;
+    int last_commit_ = 1;
 
 };
 
     template<typename Command>
+    void RaftLog<Command>::persist_log_entries(int node_id, int commit_idx, int term, int leader) {
+        std::unique_lock<std::mutex> lock(mtx);
+        for(int i = last_commit_; i <= commit_idx; i++){
+            LogEntry<Command> entry = log_entries_[i];
+            std::vector<u8> data = entry.command.serialize(entry.command.size());
+
+
+            bm_->write_block(node_id*20+i+1, data.data());
+        }
+        last_commit_ = commit_idx;
+        // persist meta data
+        u8 data[DiskBlockSize];
+        int * int_data = (int*) data;
+        int_data[0] = node_id;
+        int_data[1] = commit_idx;
+        int_data[2] = term;
+        int_data[3] = leader;
+        bm_->write_block(node_id*20, data);
+
+    }
+
+    template<typename Command>
     RaftLog<Command>::RaftLog() {
-//        bm_ = new BlockManager();
+        bm_ =
+                std::shared_ptr<BlockManager>(new BlockManager(KDefaultBlockCnt, DiskBlockSize));
         log_entries_.emplace_back(0, Command(0));
     }
 
