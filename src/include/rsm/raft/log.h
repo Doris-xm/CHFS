@@ -28,7 +28,7 @@ template <typename Command>
 class RaftLog {
 public:
     RaftLog(std::shared_ptr<BlockManager> bm);
-    RaftLog(int node_id);
+    RaftLog();
     ~RaftLog();
 
     /* Lab3: Your code here */
@@ -54,30 +54,32 @@ private:
     template<typename Command>
     void RaftLog<Command>::restore_log_entries(int node_id, int &commit_idx, int &term, int &leader) {
         std::unique_lock<std::mutex> lock(mtx);
-        u8 data[DiskBlockSize];
-        bm_->read_block(node_id*20, data);
-        int * int_data = (int*) data;
+        std::vector<u8> data(DiskBlockSize, 0);
+        bm_->read_block(node_id*20, data.data());
+        int * int_data = (int*) data.data();
         int id = int_data[0];
-        if(id == 0) { // empty log
+        if(id != node_id) { // empty metadata
             last_commit_ = 1;
             term = 0;
             leader = -1;
             commit_idx = 0;
+            std::cout<<"restore new log entries, node_id"<<node_id<<", commit_idx"<<commit_idx<<", term"<<term<<", leader"<<leader<<std::endl;
             return;
         }
         commit_idx = int_data[1];
         term = int_data[2];
         leader = int_data[3];
         for(int i = 1; i <= commit_idx; i++){
-            bm_->read_block(node_id*20+i, data);
-            std::vector<u8> intBytes(data+4, data+8);
+            bm_->read_block(node_id*20+i, data.data());
+            std::vector<u8> intBytes(data.data()+4, data.data()+8);
             int entry_term = *(int*)intBytes.data();
-            std::vector<u8> commandBytes(data, data+3);
+            std::vector<u8> commandBytes(data.data(), data.data()+4);
             Command command;
             command.deserialize(commandBytes, command.size());
             log_entries_.emplace_back(entry_term, command);
         }
         last_commit_ = commit_idx;
+        std::cout<<"restore log entries, node_id"<<node_id<<", commit_idx"<<commit_idx<<", term"<<term<<", leader"<<leader<<std::endl;
 
     }
 
@@ -100,21 +102,21 @@ private:
         // persist meta data
         u8 data[DiskBlockSize];
         int * int_data = (int*) data;
-        int_data[0] = node_id+1;// means not empty
+        int_data[0] = node_id;// means not empty
         int_data[1] = commit_idx;
         int_data[2] = term;
         int_data[3] = leader;
         bm_->write_block(node_id*20, data);
-
+        std::cout<<"persist log entries, node_id"<<node_id<<", commit_idx"<<commit_idx<<", term"<<term<<", leader"<<leader<<std::endl;
     }
 
     template<typename Command>
-    RaftLog<Command>::RaftLog(int node_id) {
+    RaftLog<Command>::RaftLog() {
         bm_ =
                 std::shared_ptr<BlockManager>(new BlockManager(KDefaultBlockCnt, DiskBlockSize));
-        // clear log
-        std::vector<u8> zero(DiskBlockSize,0);
-        bm_->write_block(node_id*20, zero.data());
+        // BUG: should not clear all data at the beginning
+//        std::vector<u8> zero(DiskBlockSize,0);
+//        bm_->write_block(node_id*20, zero.data());
         log_entries_.emplace_back(0, Command(0));
         last_commit_ = 1;
     }

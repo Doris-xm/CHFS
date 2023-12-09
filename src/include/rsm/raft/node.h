@@ -147,6 +147,7 @@ private:
     int last_heartbeat=0;
     std::map<int, int> follower_save_log_idx;
     std::map<int, int> vote_record;
+    std::shared_ptr<BlockManager> bm_;
 };
 
 template <typename StateMachine, typename Command>
@@ -190,7 +191,11 @@ RaftNode<StateMachine, Command>::RaftNode(int node_id, std::vector<RaftNodeConfi
 //        }
 //    }
     state = std::make_unique<StateMachine>();
-    log_storage = std::make_unique<RaftLog<Command>>(my_id);
+    std::stringstream filename;
+    filename << "/tmp/raft_log_" << my_id <<".log";
+    bm_ =
+            std::make_shared<BlockManager>(filename.str(), KDefaultBlockCnt);
+    log_storage = std::make_unique<RaftLog<Command>>(bm_);
     log_storage->restore_log_entries(my_id, commit_idx, current_term, leader_id);
 //    commit_idx = 0;
     for(int i = 0; i < node_configs.size(); i++) {
@@ -229,6 +234,8 @@ auto RaftNode<StateMachine, Command>::start() -> int
     std::srand(std::time(nullptr));
     // FIXME: maybe need set_network
 
+    log_storage.reset(new RaftLog<Command>(bm_));
+    log_storage->restore_log_entries(my_id, commit_idx, current_term, leader_id);
     this->last_heartbeat = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch())
             .count();
@@ -283,7 +290,7 @@ auto RaftNode<StateMachine, Command>::new_command(std::vector<u8> cmd_data, int 
         // TODO: followers need to transfer to leader？
 //        auto res = rpc_clients_map[leader_id]->call(RAFT_RPC_NEW_COMMEND, cmd_data, cmd_size);
 //        return res.unwrap()->as<std::tuple<bool, int, int>>();
-        RAFT_LOG("node %d is not leader and dismiss new cmd", my_id);
+//        RAFT_LOG("node %d is not leader and dismiss new cmd", my_id);
         return std::make_tuple(false, current_term, -1);
 
     }
@@ -303,7 +310,7 @@ auto RaftNode<StateMachine, Command>::new_command(std::vector<u8> cmd_data, int 
     // append log to log_storage
     log_storage->append_log_entry(LogEntry<Command>(current_term, cmd));
     int temp_idx = log_storage->get_prev_log_index();
-//    RAFT_LOG("leader %d append log %d", my_id, temp_idx);
+    RAFT_LOG("leader %d append log %d", my_id, temp_idx);
 //    log_storage->get_log_entries(arg.Entries);
 
 
@@ -459,7 +466,7 @@ auto RaftNode<StateMachine, Command>::append_entries(RpcAppendEntriesArgs rpc_ar
 
     // heartbeat
     if(arg.Entries.size() == 0) {
-        RAFT_LOG("node %d get heartbeat from node %d", my_id, arg.LeaderId);
+//        RAFT_LOG("node %d get heartbeat from node %d", my_id, arg.LeaderId);
         reply.Term = current_term;
         reply.Success = true;
         this->last_heartbeat = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -541,19 +548,20 @@ void RaftNode<StateMachine, Command>::handle_append_entries_reply(int node_id, c
         // lock
         std::unique_lock<std::mutex> lock(mtx);
         follower_save_log_idx[node_id] = reply.SavedLogIndex;
-        follower_save_log_idx[my_id] = log_storage->get_prev_log_index();
+        int prev_log_idx = log_storage->get_prev_log_index();
+        follower_save_log_idx[my_id] = prev_log_idx;
         // A log entry is committed once the leader that created the entry has replicated it on a majority of the servers
-        int i = commit_idx + 1;
-        for(; i <= follower_save_log_idx[my_id]; i++) {
+//        int i = commit_idx + 1;
+//        for(; i <= follower_save_log_idx[my_id]; i++) {
             int cnt = 0;
             for(auto follower : follower_save_log_idx)
-                if(follower.second >= i)
+                if(follower.second >= prev_log_idx)
                     cnt++;
 
             if(cnt > node_configs.size() / 2)
-                commit_idx = i;
+                commit_idx = prev_log_idx;
 
-        }
+//        }
 
         // unlock
         lock.unlock();
@@ -660,7 +668,7 @@ void RaftNode<StateMachine, Command>::run_background_election() {
                          .count();
                  int timeout = (rand()+139*my_id)%700 + 200;
                  if(my_id == node_configs.size()-1)
-                     timeout=150;
+                     timeout=120;
                  if (now_ - this->last_heartbeat > timeout) { // election timeout
                      // lock
 
@@ -668,7 +676,7 @@ void RaftNode<StateMachine, Command>::run_background_election() {
                      std::unique_lock<std::mutex> lock(mtx);
                      this->role = RaftRole::Candidate;
                      this->current_term++;
-                     RAFT_LOG("node %d begin to hold election with term %d ", my_id, this->current_term);
+//                     RAFT_LOG("node %d begin to hold election with term %d ", my_id, this->current_term);
                      this->leader_id = my_id;
 //                     this->count_vote = 1; // vote for myself
                     for(auto &vote : vote_record)
@@ -774,6 +782,7 @@ void RaftNode<StateMachine, Command>::run_background_apply() {
                  Command cmd_ = log_storage->get_log_entry(i).command;
                  state->apply_log(cmd_);
              }
+             log_storage->persist_log_entries(my_id, commit_idx, current_term, leader_id);
             // unlock
             lock.unlock();
             // sleep for 100ms
@@ -815,7 +824,7 @@ void RaftNode<StateMachine, Command>::run_background_ping() {
                 }
             }
             // sleep for 100ms
-            std::this_thread::sleep_for(std::chrono::milliseconds(150));
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
         }
     }
 
