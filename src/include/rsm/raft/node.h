@@ -193,6 +193,9 @@ RaftNode<StateMachine, Command>::RaftNode(int node_id, std::vector<RaftNodeConfi
     state = std::make_unique<StateMachine>();
     std::stringstream filename;
     filename << "/tmp/raft_log_" << my_id <<".log";
+    // delete if exits
+    if(std::filesystem::exists(filename.str()))
+        std::filesystem::remove(filename.str());
     bm_ =
             std::make_shared<BlockManager>(filename.str(), KDefaultBlockCnt);
     log_storage = std::make_unique<RaftLog<Command>>(bm_);
@@ -234,8 +237,14 @@ auto RaftNode<StateMachine, Command>::start() -> int
     std::srand(std::time(nullptr));
     // FIXME: maybe need set_network
 
-    log_storage.reset(new RaftLog<Command>(bm_));
-    log_storage->restore_log_entries(my_id, commit_idx, current_term, leader_id);
+//    log_storage.reset(new RaftLog<Command>(bm_));
+//    log_storage->restore_log_entries(my_id, commit_idx, current_term, leader_id);
+    // DEBUG test persist
+    std::vector<u8> data2(DiskBlockSize, 0);
+    bm_->read_block(0, data2.data());
+    int * int_data2 = (int*) data2.data();
+    std::cout<<"test persist meta data, node_id"<<int_data2[0]<<", commit_idx"<<int_data2[1]<<", term"<<int_data2[2]<<", leader"<<int_data2[3]<<std::endl;
+
     this->last_heartbeat = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::system_clock::now().time_since_epoch())
             .count();
@@ -676,7 +685,7 @@ void RaftNode<StateMachine, Command>::run_background_election() {
                      std::unique_lock<std::mutex> lock(mtx);
                      this->role = RaftRole::Candidate;
                      this->current_term++;
-//                     RAFT_LOG("node %d begin to hold election with term %d ", my_id, this->current_term);
+                     RAFT_LOG("node %d begin to hold election with term %d ", my_id, this->current_term);
                      this->leader_id = my_id;
 //                     this->count_vote = 1; // vote for myself
                     for(auto &vote : vote_record)

@@ -48,6 +48,7 @@ private:
     /* Lab3: Your code here */
     std::vector<LogEntry<Command>> log_entries_;
     int last_commit_ = 1;
+    const int entries_per_block_ = DiskBlockSize / sizeof(LogEntry<Command>);
 
 };
 
@@ -55,10 +56,10 @@ private:
     void RaftLog<Command>::restore_log_entries(int node_id, int &commit_idx, int &term, int &leader) {
         std::unique_lock<std::mutex> lock(mtx);
         std::vector<u8> data(DiskBlockSize, 0);
-        bm_->read_block(node_id*20, data.data());
+        bm_->read_block(0, data.data());
         int * int_data = (int*) data.data();
-        int id = int_data[0];
-        if(id != node_id) { // empty metadata
+        int id = int_data[0]; // 0 means empty
+        if(!id || id != (node_id + 1) ) { // empty metadata
             last_commit_ = 1;
             term = 0;
             leader = -1;
@@ -70,7 +71,7 @@ private:
         term = int_data[2];
         leader = int_data[3];
         for(int i = 1; i <= commit_idx; i++){
-            bm_->read_block(node_id*20+i, data.data());
+            bm_->read_block(i, data.data());
             std::vector<u8> intBytes(data.data()+4, data.data()+8);
             int entry_term = *(int*)intBytes.data();
             std::vector<u8> commandBytes(data.data(), data.data()+4);
@@ -96,17 +97,17 @@ private:
             memcpy(intBytes.data(), &entry.term, sizeof(int));
             // 插入到 data 向量中的第4位后面
             data.insert(data.begin() + 4, intBytes.begin(), intBytes.end());
-            bm_->write_block(node_id*20+i, data.data());
+            bm_->write_block(i, data.data());
         }
         last_commit_ = commit_idx;
         // persist meta data
         u8 data[DiskBlockSize];
         int * int_data = (int*) data;
-        int_data[0] = node_id;// means not empty
+        int_data[0] = node_id + 1;// means not empty
         int_data[1] = commit_idx;
         int_data[2] = term;
         int_data[3] = leader;
-        bm_->write_block(node_id*20, data);
+        bm_->write_block(0, data);
         std::cout<<"persist log entries, node_id"<<node_id<<", commit_idx"<<commit_idx<<", term"<<term<<", leader"<<leader<<std::endl;
     }
 
