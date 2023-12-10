@@ -158,17 +158,32 @@ struct AppendEntriesReply {
 
 struct InstallSnapshotArgs {
     /* Lab3: Your code here */
+    int Term; //Leader’s term
+    int LeaderId; //so follower can redirect clients
+    int LastIncludedIndex; //the snapshot replaces all entries up through and including this index
+    int LastIncludedTerm; //term of lastIncludedIndex
+    int Offset; // byte offset where chunk is positioned in the snapshot file
+    std::vector<u8> Data; // raw bytes of the snapshot chunk, starting at offset
+    bool Done; // true if this is the last chunk
 
     MSGPACK_DEFINE(
+        Term,
+        LeaderId,
+        LastIncludedIndex,
+        LastIncludedTerm,
+        Offset,
+        Data,
+        Done
     
     )
 };
 
 struct InstallSnapshotReply {
     /* Lab3: Your code here */
+    int Term; // currentTerm, for leader to update itself
 
     MSGPACK_DEFINE(
-    
+        Term
     )
 };
 

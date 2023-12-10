@@ -148,6 +148,11 @@ private:
     std::map<int, int> follower_save_log_idx;
     std::map<int, int> vote_record;
     std::shared_ptr<BlockManager> bm_;
+    //snapshot
+    int last_snapshot_idx = 0;
+    int last_snapshot_term = 0;
+    std::vector<u8> last_snapshot_data;
+    int last_snapshot_offset = 0;
 };
 
 template <typename StateMachine, typename Command>
@@ -341,7 +346,19 @@ auto RaftNode<StateMachine, Command>::new_command(std::vector<u8> cmd_data, int 
 template <typename StateMachine, typename Command>
 auto RaftNode<StateMachine, Command>::save_snapshot() -> bool
 {
-    /* Lab3: Your code here */ 
+    /* Lab3: Your code here */
+    // lock
+    std::unique_lock<std::mutex> lock(mtx);
+    // save snapshot
+    std::vector<u8> snapshot = state->snapshot();
+    RAFT_LOG("node %d save snapshot %zu", my_id, snapshot.size());
+    last_snapshot_idx = state->store.size() - 1;
+    last_snapshot_term = log_storage->get_log_term(last_snapshot_idx);
+    last_snapshot_data = snapshot;
+    // delete log
+    log_storage->save_snapshot(my_id, last_snapshot_idx, last_snapshot_term, last_snapshot_offset, snapshot);
+    last_snapshot_offset ++;
+
     return true;
 }
 
@@ -349,7 +366,14 @@ template <typename StateMachine, typename Command>
 auto RaftNode<StateMachine, Command>::get_snapshot() -> std::vector<u8>
 {
     /* Lab3: Your code here */
-    return std::vector<u8>();
+    // lock
+    std::unique_lock<std::mutex> lock(mtx);
+    std::vector<u8> snapshot;
+    for(int i = 0; i < last_snapshot_offset; i++) {
+        std::vector<u8> temp = log_storage->read_snapshot(my_id, i);
+        snapshot.insert(snapshot.end(), temp.begin(), temp.end());
+    }
+    return snapshot;
 }
 
 /******************************************************************
@@ -581,9 +605,23 @@ void RaftNode<StateMachine, Command>::handle_append_entries_reply(int node_id, c
 
 
 template <typename StateMachine, typename Command>
-auto RaftNode<StateMachine, Command>::install_snapshot(InstallSnapshotArgs args) -> InstallSnapshotReply
+    auto RaftNode<StateMachine, Command>::install_snapshot(InstallSnapshotArgs args) -> InstallSnapshotReply
 {
     /* Lab3: Your code here */
+//    InstallSnapshotReply reply;
+//    // lock
+//    std::unique_lock<std::mutex> lock(mtx);
+//    //  send to all followers
+//    if (this->role != RaftRole::Leader) {
+//        return;
+//    }
+//    for (auto node : node_configs) {
+//        if (node.node_id != my_id) {
+//            send_install_snapshot(node.node_id, args);
+//        }
+//    }
+
+
     return InstallSnapshotReply();
 }
 
@@ -592,6 +630,18 @@ template <typename StateMachine, typename Command>
 void RaftNode<StateMachine, Command>::handle_install_snapshot_reply(int node_id, const InstallSnapshotArgs arg, const InstallSnapshotReply reply)
 {
     /* Lab3: Your code here */
+//    if(reply.Term > current_term) {
+//        // lock
+//        std::unique_lock<std::mutex> lock(mtx);
+//        current_term = reply.Term;
+//        RAFT_LOG("node %d update term to %d and become follower", my_id, current_term);
+//        role = RaftRole::Follower;
+//        this->last_heartbeat = std::chrono::duration_cast<std::chrono::milliseconds>(
+//                std::chrono::system_clock::now().time_since_epoch())
+//                .count();
+//        leader_id = -1;
+//        return;
+//    }
     return;
 }
 
@@ -685,7 +735,7 @@ void RaftNode<StateMachine, Command>::run_background_election() {
                      std::unique_lock<std::mutex> lock(mtx);
                      this->role = RaftRole::Candidate;
                      this->current_term++;
-                     RAFT_LOG("node %d begin to hold election with term %d ", my_id, this->current_term);
+//                     RAFT_LOG("node %d begin to hold election with term %d ", my_id, this->current_term);
                      this->leader_id = my_id;
 //                     this->count_vote = 1; // vote for myself
                     for(auto &vote : vote_record)

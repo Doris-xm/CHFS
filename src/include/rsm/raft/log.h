@@ -41,6 +41,8 @@ public:
     LogEntry<Command> get_log_entry(int index);
     void persist_log_entries(int node_id, int commit_idx, int term, int leader);
     void restore_log_entries(int node_id, int &commit_idx, int &term, int &leader);
+    void save_snapshot(int node_id, int last_included_index, int last_included_term, int offset, std::vector<u8> data);
+    std::vector<u8> read_snapshot(int node_id, int offset);
 
 private:
     std::shared_ptr<BlockManager> bm_;
@@ -51,6 +53,50 @@ private:
     const int entries_per_block_ = DiskBlockSize / sizeof(LogEntry<Command>);
 
 };
+
+    template<typename Command>
+    std::vector<u8> RaftLog<Command>::read_snapshot(int node_id, int offset) {
+        std::unique_lock<std::mutex> lock(mtx);
+        std::stringstream filename;
+        filename << "/tmp/snapshot_" << node_id << ".log";
+        auto snap_bm_ = std::make_shared<BlockManager>(filename.str(), KDefaultBlockCnt);
+        std::vector<u8> data(DiskBlockSize, 0);
+        snap_bm_->read_block(offset, data.data());
+        int * int_data = (int*) data.data();
+        int size = int_data[2];
+        data.erase(data.begin(), data.begin()+3*sizeof(int));
+        data.resize(size);
+        return data;
+    }
+
+    template<typename Command>
+    void RaftLog<Command>::save_snapshot(int node_id, int last_included_index, int last_included_term, int offset,
+                                          std::vector<u8> data) {
+        std::unique_lock<std::mutex> lock(mtx);
+        std::stringstream filename;
+        filename << "/tmp/snapshot_" << node_id << ".log";
+        if (offset == 0 && std::filesystem::exists(filename.str()))
+            std::filesystem::remove(filename.str());
+        auto snap_bm_ = std::make_shared<BlockManager>(filename.str(), KDefaultBlockCnt);
+        // 将整数转换为字节序列
+        int size_ = data.size();
+        std::vector<u8> bytes1(reinterpret_cast<u8*>(&last_included_index), reinterpret_cast<u8*>(&last_included_index) + sizeof(int));
+        std::vector<u8> bytes2(reinterpret_cast<u8*>(&last_included_term), reinterpret_cast<u8*>(&last_included_term) + sizeof(int));
+        std::vector<u8> bytes3(reinterpret_cast<u8*>(&size_), reinterpret_cast<u8*>(&size_) + sizeof(int));
+
+        // 在 data 向量的开头插入这3个整数的字节序列
+        data.insert(data.begin(), bytes2.begin(), bytes2.end());
+        data.insert(data.begin(), bytes1.begin(), bytes1.end());
+        data.insert(data.begin(), bytes3.begin(), bytes3.end());
+
+        snap_bm_->write_block(offset, data.data());
+
+        // delete log
+//        for(int i = 1; i <= last_included_index; i++){
+//            log_entries_.erase(log_entries_.begin()+1);
+//        }
+
+    }
 
     template<typename Command>
     void RaftLog<Command>::restore_log_entries(int node_id, int &commit_idx, int &term, int &leader) {
