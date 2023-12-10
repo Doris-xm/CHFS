@@ -71,6 +71,7 @@ struct AppendEntriesArgs {
     int LeaderId;
     int PrevLogIndex;
     int PrevLogTerm;
+    int SnapShotNum;
     std::vector<LogEntry<Command>> Entries;
     int LeaderCommit;
 };
@@ -81,6 +82,7 @@ struct RpcAppendEntriesArgs {
     int LeaderId;
     int PrevLogIndex;
     int PrevLogTerm;
+    int SnapShotNum;
     std::vector<u8> Entries;
     int LeaderCommit;
     MSGPACK_DEFINE(
@@ -88,6 +90,7 @@ struct RpcAppendEntriesArgs {
             LeaderId,
             PrevLogIndex,
             PrevLogTerm,
+            SnapShotNum,
             Entries,
             LeaderCommit
     )
@@ -102,6 +105,7 @@ RpcAppendEntriesArgs transform_append_entries_args(const AppendEntriesArgs<Comma
     rpcArgs.LeaderId = arg.LeaderId;
     rpcArgs.PrevLogIndex = arg.PrevLogIndex;
     rpcArgs.PrevLogTerm = arg.PrevLogTerm;
+    rpcArgs.SnapShotNum = arg.SnapShotNum;
 
     // Serialize log entries
     RPCLIB_MSGPACK::sbuffer buffer;
@@ -124,6 +128,7 @@ AppendEntriesArgs<Command> transform_rpc_append_entries_args(const RpcAppendEntr
     args.LeaderId = rpc_arg.LeaderId;
     args.PrevLogIndex = rpc_arg.PrevLogIndex;
     args.PrevLogTerm = rpc_arg.PrevLogTerm;
+    args.SnapShotNum = rpc_arg.SnapShotNum;
 
     // Deserialize log entries
     // Get the binary data of Entries from RpcAppendEntriesArgs
