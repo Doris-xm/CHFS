@@ -41,21 +41,25 @@ public:
     LogEntry<Command> get_log_entry(int index);
     void persist_log_entries(int node_id, int commit_idx, int term, int leader);
     void restore_log_entries(int node_id, int &commit_idx, int &term, int &leader);
-    void save_snapshot(int node_id, int last_included_index, int last_included_term, int offset, std::vector<u8> data);
-    std::vector<u8> read_snapshot(int node_id, int offset);
+    void save_snapshot(int node_id, int last_included_index, int last_included_term, int offset, std::vector<u8> data, bool delete_ = false);
+    std::vector<u8> read_snapshot(int node_id, int offset, int &last_included_index, int &last_included_term);
 
 private:
     std::shared_ptr<BlockManager> bm_;
     std::mutex mtx;
     /* Lab3: Your code here */
+
+public:
     std::vector<LogEntry<Command>> log_entries_;
     int last_commit_ = 1;
-    const int entries_per_block_ = DiskBlockSize / sizeof(LogEntry<Command>);
+    bool isDeleted = false;
+    int last_delete_index_ = 0;
+    int last_delete_term_ = 0;
 
 };
 
     template<typename Command>
-    std::vector<u8> RaftLog<Command>::read_snapshot(int node_id, int offset) {
+    std::vector<u8> RaftLog<Command>::read_snapshot(int node_id, int offset, int &last_included_index, int &last_included_term) {
         std::unique_lock<std::mutex> lock(mtx);
         std::stringstream filename;
         filename << "/tmp/snapshot_" << node_id << ".log";
@@ -63,16 +67,18 @@ private:
         std::vector<u8> data(DiskBlockSize, 0);
         snap_bm_->read_block(offset, data.data());
         int * int_data = (int*) data.data();
+        last_included_index = int_data[0];
+        last_included_term = int_data[1];
         int size = int_data[2];
         data.erase(data.begin(), data.begin()+3*sizeof(int));
         data.resize(size);
+
         return data;
     }
 
     template<typename Command>
     void RaftLog<Command>::save_snapshot(int node_id, int last_included_index, int last_included_term, int offset,
-                                          std::vector<u8> data) {
-        std::unique_lock<std::mutex> lock(mtx);
+                                          std::vector<u8> data, bool delete_) {
         std::stringstream filename;
         filename << "/tmp/snapshot_" << node_id << ".log";
         if (offset == 0 && std::filesystem::exists(filename.str()))
@@ -88,13 +94,29 @@ private:
         data.insert(data.begin(), bytes2.begin(), bytes2.end());
         data.insert(data.begin(), bytes1.begin(), bytes1.end());
         data.insert(data.begin(), bytes3.begin(), bytes3.end());
+        data.resize(DiskBlockSize, 0);
 
         snap_bm_->write_block(offset, data.data());
 
-        // delete log
-//        for(int i = 1; i <= last_included_index; i++){
-//            log_entries_.erase(log_entries_.begin()+1);
-//        }
+//         delete log
+
+        std::unique_lock<std::mutex> lock(mtx);
+        if(delete_){
+            if(!isDeleted) {
+                last_delete_index_ = last_included_index;
+                last_delete_term_ = last_included_term;
+                isDeleted = true;
+            } else {
+                last_delete_index_ += last_included_index;
+                last_delete_term_ = last_included_term;
+            }
+            int max_index = log_entries_.size() - 1;
+            max_index = std::min(max_index, last_included_index);
+            for(int i = 1; i <= max_index; i++){
+                log_entries_.erase(log_entries_.begin()+1);
+            }
+            last_commit_ = 1;
+        }
 
     }
 
@@ -177,12 +199,18 @@ private:
 
     template<typename Command>
     int RaftLog<Command>::get_prev_log_index() {
+
+        std::unique_lock<std::mutex> lock(mtx);
+        if(isDeleted)
+            return log_entries_.size() - 1 + last_delete_index_;
         return log_entries_.size() - 1;
     }
 
     template<typename Command>
     int RaftLog<Command>::get_log_term(int index) {
-        if(index >= log_entries_.size())
+        if(isDeleted)
+            index -= last_delete_index_;
+        if(index >= log_entries_.size() || index < 0)
             return 0;
         return log_entries_[index].term;
     }
@@ -201,6 +229,14 @@ private:
 
     template<typename Command>
     int RaftLog<Command>::get_prev_log_term() {
+        std::unique_lock<std::mutex> lock(mtx);
+        if(isDeleted) {
+            if (log_entries_.size() > 1) {
+                return log_entries_.back().term;
+            }
+            else
+                return last_delete_term_;
+        }
         if(log_entries_.size() == 0)
             return 0;
         return log_entries_.back().term;
