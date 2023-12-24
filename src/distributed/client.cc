@@ -92,7 +92,7 @@ auto ChfsClient::get_type_attr(inode_id_t id)
     }
     auto ret_val = res.unwrap()->as<std::tuple<u64, u64, u64, u64, u8>>();
     InodeType inodeType = (InodeType)std::get<4>(ret_val);
-    FileAttr fileAttr = {std::get<0>(ret_val), std::get<1>(ret_val), std::get<2>(ret_val), std::get<3>(ret_val)};
+    FileAttr fileAttr = {std::get<1>(ret_val), std::get<2>(ret_val), std::get<3>(ret_val), std::get<0>(ret_val)};
     return ChfsResult<std::pair<InodeType, FileAttr>>{std::make_pair(inodeType, fileAttr)};
 }
 
@@ -157,11 +157,15 @@ auto ChfsClient::write_file(inode_id_t id, usize offset, std::vector<u8> data)
         block_info.push_back(new_block);
     }
 
+    std::vector<u8> buffer(data.begin(), data.begin() + DiskBlockSize - offset % DiskBlockSize);
     auto res = data_servers_[std::get<1>(block_info[start_pos])]->call("write_data",
-                                       std::get<0>(block_info[start_pos]), offset % DiskBlockSize, data);
+                                       std::get<0>(block_info[start_pos]), offset % DiskBlockSize, buffer);
     auto curr_pos = DiskBlockSize - offset % DiskBlockSize;
     for (auto i = start_pos + 1; i < start_pos + num_block; ++i) {
-        std::vector<u8> buffer(data.begin()+curr_pos, data.end());
+        if (i == start_pos + num_block - 1)
+            buffer = std::vector<u8>(data.begin() + curr_pos, data.end());
+        else
+            buffer = std::vector<u8>(data.begin() + curr_pos, data.begin() + curr_pos + DiskBlockSize);
         data_servers_[std::get<1>(block_info[i])]->call("write_data",
                                                            std::get<0>(block_info[i]), 0, buffer);
         curr_pos += DiskBlockSize;

@@ -14,6 +14,9 @@ namespace mapReduce {
         KeyVal(){}
         std::string key;
         std::string val;
+        static bool cmp(const KeyVal &a, const KeyVal &b) {
+            return a.key < b.key;
+        }
     };
 
     enum mr_tasktype {
