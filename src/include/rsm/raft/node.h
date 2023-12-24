@@ -199,12 +199,12 @@ RaftNode<StateMachine, Command>::RaftNode(int node_id, std::vector<RaftNodeConfi
     std::stringstream filename;
     filename << "/tmp/raft_log_" << my_id <<".log";
     // delete if exits
-    if(std::filesystem::exists(filename.str()))
-        std::filesystem::remove(filename.str());
+//    if(std::filesystem::exists(filename.str()))
+//        std::filesystem::remove(filename.str());
     bm_ =
             std::make_shared<BlockManager>(filename.str(), KDefaultBlockCnt);
     log_storage = std::make_unique<RaftLog<Command>>(bm_);
-    log_storage->restore_log_entries(my_id, commit_idx, current_term, leader_id);
+    log_storage->restore_log_entries(my_id, commit_idx, current_term, leader_id, last_snapshot_offset);
 //    commit_idx = 0;
     for(int i = 0; i < node_configs.size(); i++) {
         follower_save_log_idx.insert(std::make_pair(i, 0));
@@ -889,7 +889,7 @@ void RaftNode<StateMachine, Command>::run_background_apply() {
                  Command cmd_ = log_storage->get_log_entry(i).command;
                  state->apply_log(cmd_);
              }
-//             log_storage->persist_log_entries(my_id, commit_idx, current_term, leader_id);
+             log_storage->persist_log_entries(my_id, commit_idx, current_term, leader_id, last_snapshot_offset);
             // unlock
             lock.unlock();
             // sleep for 100ms

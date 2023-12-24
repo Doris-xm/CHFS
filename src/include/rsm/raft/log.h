@@ -39,8 +39,8 @@ public:
     void delete_entries(int index); // delete entries include and after index
     void get_log_entries(std::vector<LogEntry<Command>> &entries);
     LogEntry<Command> get_log_entry(int index);
-    void persist_log_entries(int node_id, int commit_idx, int term, int leader);
-    void restore_log_entries(int node_id, int &commit_idx, int &term, int &leader);
+    void persist_log_entries(int node_id, int commit_idx, int term, int leader, int last_snapshot_offset);
+    void restore_log_entries(int node_id, int &commit_idx, int &term, int &leader,int &last_snapshot_offset);
     void save_snapshot(int node_id, int last_included_index, int last_included_term, int offset, std::vector<u8> data, bool delete_ = false);
     std::vector<u8> read_snapshot(int node_id, int offset, int &last_included_index, int &last_included_term);
     int get_snap_num(){
@@ -119,7 +119,7 @@ public:
     }
 
     template<typename Command>
-    void RaftLog<Command>::restore_log_entries(int node_id, int &commit_idx, int &term, int &leader) {
+    void RaftLog<Command>::restore_log_entries(int node_id, int &commit_idx, int &term, int &leader, int &last_snapshot_offset) {
 //        std::unique_lock<std::mutex> lock(mtx);
         std::vector<u8> data(DiskBlockSize, 0);
         bm_->read_block(0, data.data());
@@ -130,12 +130,14 @@ public:
             term = 0;
             leader = -1;
             commit_idx = 0;
+            last_snapshot_offset = 0;
             std::cout<<"restore new log entries, node_id"<<node_id<<", commit_idx"<<commit_idx<<", term"<<term<<", leader"<<leader<<std::endl;
             return;
         }
         commit_idx = int_data[1];
         term = int_data[2];
         leader = int_data[3];
+        last_snapshot_offset = int_data[4];
         for(int i = 1; i <= commit_idx; i++){
             bm_->read_block(i, data.data());
             std::vector<u8> intBytes(data.data()+4, data.data()+8);
@@ -151,7 +153,7 @@ public:
     }
 
     template<typename Command>
-    void RaftLog<Command>::persist_log_entries(int node_id, int commit_idx, int term, int leader) {
+    void RaftLog<Command>::persist_log_entries(int node_id, int commit_idx, int term, int leader, int last_snapshot_offset) {
         if(commit_idx <= last_commit_)
             return;
 //        std::unique_lock<std::mutex> lock(mtx);
@@ -173,6 +175,7 @@ public:
         int_data[1] = commit_idx;
         int_data[2] = term;
         int_data[3] = leader;
+        int_data[4] = last_snapshot_offset;
         bm_->write_block(0, data);
         std::cout<<"persist log entries, node_id"<<node_id<<", commit_idx"<<commit_idx<<", term"<<term<<", leader"<<leader<<std::endl;
     }
