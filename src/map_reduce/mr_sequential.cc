@@ -63,14 +63,10 @@ namespace mapReduce {
             values.emplace_back(key_val.val);
         }
         /* Write to file */
-        std::ifstream f(outPutFile);
-        if (!f.is_open()) {
-            std::cerr << "open file error：" << outPutFile << std::endl;
-            return;
-        }
         auto res_lookup = chfs_client->lookup(1, outPutFile);
         auto inode_id = res_lookup.unwrap();
-        std::vector<uint8_t> vec(dump_buffer.str().begin(), dump_buffer.str().end());
+        std::string content = dump_buffer.str();
+        std::vector<chfs::u8> vec(content.begin(), content.end());
         chfs_client->write_file(inode_id, 0, vec);
     }
 }
