@@ -3,6 +3,7 @@
 #include <iostream>
 #include <vector>
 #include <algorithm>
+#include <cctype>
 
 #include "map_reduce/protocol.h"
 
@@ -14,16 +15,38 @@ namespace mapReduce{
 // and look only at the contents argument. The return value is a slice
 // of key/value pairs.
 //
+    bool isDelimiter(char c) {
+        return std::isspace(c) || std::ispunct(c);
+    }
+
+    std::vector<std::string> splitIntoWords(const std::string &content) {
+        std::vector<std::string> words;
+        std::istringstream iss(content);
+        std::string word;
+        while (iss >> std::noskipws >> word) {
+            for (char &c : word) {
+                if (isDelimiter(c)) {
+                    c = ' '; // replace delimiter with space
+                }
+            }
+            std::istringstream wordStream(word);
+            std::string subword;
+            while (wordStream >> subword) {
+                if (!subword.empty()) {
+                    words.push_back(subword);
+                }
+            }
+        }
+        return words;
+    }
+
     std::vector<KeyVal> Map(const std::string &content) {
         // Your code goes here
         // Hints: split contents into an array of words.
-        std::stringstream stringstream(content);
-        std::string key;
+        auto words = splitIntoWords(content);
         std::vector<KeyVal> ret;
-        while (stringstream >> key) {
-            std::size_t first_not_null = key.find_first_not_of('\0');
-            if (first_not_null != std::string::npos)
-                ret.emplace_back(key.substr(first_not_null), "1");
+        for (auto &word : words) {
+            ret.emplace_back(word, "1");
         }
         return ret;
 
