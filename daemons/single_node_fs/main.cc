@@ -270,7 +270,7 @@ void chfs_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name,
 }
 
 /** Remove a file */
-void chfs_unlink(fuse_req_t req, fuse_ino_t parent, const char *name) {
+void chfs_unlink(fuse_req_t req, fuse_ino_t parent, const char *name, std::vector<std::shared_ptr<BlockOperation>> *ops) {
   FileOperation *fs = reinterpret_cast<FileOperation *>(fuse_req_userdata(req));
   auto res = fs->unlink(parent, name);
   if (res.is_err()) {

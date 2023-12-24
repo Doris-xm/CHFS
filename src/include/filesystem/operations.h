@@ -12,6 +12,7 @@
 #pragma once
 
 #include "metadata/manager.h"
+#include "distributed/commit_log.h"
 #include <sys/stat.h>
 
 namespace chfs {
@@ -60,7 +61,7 @@ public:
    * @param type the type of the inode
    * @return the id of the inode
    */
-  auto alloc_inode(InodeType type) -> ChfsResult<inode_id_t>;
+  auto alloc_inode(InodeType type,std::vector<std::shared_ptr<BlockOperation>> *ops = nullptr) -> ChfsResult<inode_id_t>;
 
   /**
    * Get the file attribute of the given inode
@@ -91,7 +92,7 @@ public:
    * @param id the id of the inode
    * @param content the content to write
    */
-  auto write_file(inode_id_t, const std::vector<u8> &content) -> ChfsNullResult;
+  auto write_file(inode_id_t, const std::vector<u8> &content, std::vector<std::shared_ptr<BlockOperation>> *ops= nullptr) -> ChfsNullResult;
 
   /**
    * Write the content to the blocks pointed by the inode
@@ -128,7 +129,7 @@ public:
    * @param id the id of the inode
    * @return whether the remove is ok
    */
-  auto remove_file(inode_id_t) -> ChfsNullResult;
+  auto remove_file(inode_id_t, std::vector<std::shared_ptr<BlockOperation>> *ops= nullptr) -> ChfsNullResult;
 
   /**
    * Get the free blocks of the filesystem.
@@ -147,7 +148,7 @@ public:
    * @param parent the id of the parent
    * @param name the name of the directory
    */
-  auto mk_helper(inode_id_t parent, const char *name, InodeType type)
+  auto mk_helper(inode_id_t parent, const char *name, InodeType type, std::vector<std::shared_ptr<BlockOperation>> *ops = nullptr)
       -> ChfsResult<inode_id_t>;
 
   /**
@@ -184,7 +185,8 @@ public:
    * @return  If the file doesn't exist, indicate error ENOENT.
    * @return  ENOTEMPTY if the deleted file is a directory
    */
-  auto unlink(inode_id_t parent, const char *name) -> ChfsNullResult;
+  auto unlink(inode_id_t parent, const char *name,
+              std::vector<std::shared_ptr<BlockOperation>> *ops = nullptr) -> ChfsNullResult;
 
 private:
   FileOperation(std::shared_ptr<BlockManager> bm,
